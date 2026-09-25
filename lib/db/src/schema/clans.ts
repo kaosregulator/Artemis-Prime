@@ -245,6 +245,11 @@ export const clansTable = pgTable("clans", {
     .notNull()
     .default([]),
 
+  /** Truth or Dare — community engagement game (independent of XP/warnings). */
+  todEnabled: boolean("tod_enabled").notNull().default(true),
+  /** Optional JSON overrides for rewards / cooldowns / feature flags. */
+  todSettingsJson: text("tod_settings_json"),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

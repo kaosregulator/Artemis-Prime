@@ -7,6 +7,7 @@ import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
 import { setCommandCenterClient } from "./services/commandCenter";
 import { setOrderTrackerClient } from "./services/orderTracker";
+import { setAltBoardClient } from "./services/altBoard";
 import { startScoutAutoSnapshots } from "./services/scout";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -150,6 +151,7 @@ export function startBot() {
     // message in place when data changes.
     setCommandCenterClient(c);
     setOrderTrackerClient(c);
+    setAltBoardClient(c);
     await registerCommands(c);
     startScheduler(c);
     // Background Military Tycoon (and tracked) snapshots for Game Intelligence.

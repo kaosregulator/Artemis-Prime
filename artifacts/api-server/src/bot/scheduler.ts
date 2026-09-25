@@ -20,6 +20,7 @@ import {
   clearWarningRolesForSatisfiedMembers,
 } from "./services/warnings";
 import { refreshDashboardNow } from "./services/commandCenter";
+import { expireStaleChallenges } from "./services/todGame";
 
 const TICK_MS = 60_000;
 
@@ -128,6 +129,13 @@ async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string)
 }
 
 async function tick(client: Client) {
+  try {
+    const n = await expireStaleChallenges();
+    if (n > 0) logger.info({ expired: n }, "Expired stale ToD challenges");
+  } catch (err) {
+    logger.warn({ err }, "ToD expire tick failed");
+  }
+
   let clans: Clan[] = [];
   try {
     clans = await activeClans();

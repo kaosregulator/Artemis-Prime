@@ -151,6 +151,110 @@ const STATEMENTS = [
      ON service_order_reviews (order_id)`,
   `CREATE INDEX IF NOT EXISTS service_order_reviews_guild_idx
      ON service_order_reviews (guild_id)`,
+
+  // Patriots / Guardians alt daily board
+  `CREATE TABLE IF NOT EXISTS alt_daily_logs (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      user_id text NOT NULL,
+      username text NOT NULL,
+      display_name text NOT NULL,
+      activity_date text NOT NULL,
+      alt_count integer NOT NULL,
+      recorded_by text NOT NULL,
+      recorded_by_username text NOT NULL,
+      note text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS alt_daily_logs_guild_user_date_uidx
+     ON alt_daily_logs (guild_id, user_id, activity_date)`,
+  `CREATE INDEX IF NOT EXISTS alt_daily_logs_guild_date_idx
+     ON alt_daily_logs (guild_id, activity_date)`,
+
+  // Truth or Dare
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS tod_enabled boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS tod_settings_json text`,
+  `CREATE TABLE IF NOT EXISTS tod_players (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      user_id text NOT NULL,
+      username text NOT NULL,
+      display_name text NOT NULL,
+      truths_completed integer NOT NULL DEFAULT 0,
+      dares_completed integer NOT NULL DEFAULT 0,
+      challenges_issued integer NOT NULL DEFAULT 0,
+      challenges_accepted integer NOT NULL DEFAULT 0,
+      challenges_completed integer NOT NULL DEFAULT 0,
+      challenges_passed integer NOT NULL DEFAULT 0,
+      wins integer NOT NULL DEFAULT 0,
+      losses integer NOT NULL DEFAULT 0,
+      current_streak integer NOT NULL DEFAULT 0,
+      best_streak integer NOT NULL DEFAULT 0,
+      daily_streak integer NOT NULL DEFAULT 0,
+      last_completed_date text,
+      tod_points integer NOT NULL DEFAULT 0,
+      title_key text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS tod_players_guild_user_uidx
+     ON tod_players (guild_id, user_id)`,
+  `CREATE TABLE IF NOT EXISTS tod_challenges (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      channel_id text NOT NULL,
+      message_id text,
+      kind text NOT NULL,
+      status text NOT NULL DEFAULT 'active',
+      challenger_id text,
+      target_id text NOT NULL,
+      target_username text NOT NULL,
+      content_id text,
+      content_type text,
+      category text,
+      difficulty text,
+      prompt_text text NOT NULL,
+      requires_proof boolean NOT NULL DEFAULT false,
+      high_stakes boolean NOT NULL DEFAULT false,
+      reward_points integer NOT NULL DEFAULT 0,
+      pass_penalty integer NOT NULL DEFAULT 0,
+      expires_at timestamptz,
+      completed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE INDEX IF NOT EXISTS tod_challenges_guild_status_idx
+     ON tod_challenges (guild_id, status)`,
+  `CREATE INDEX IF NOT EXISTS tod_challenges_target_idx
+     ON tod_challenges (guild_id, target_id, status)`,
+  `CREATE TABLE IF NOT EXISTS tod_anonymous (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      channel_id text,
+      message_id text,
+      author_id text NOT NULL,
+      body text NOT NULL,
+      guess_user_id text,
+      guess_correct boolean,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE INDEX IF NOT EXISTS tod_anonymous_guild_idx ON tod_anonymous (guild_id)`,
+  `CREATE TABLE IF NOT EXISTS tod_custom_content (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      content_key text NOT NULL,
+      type text NOT NULL,
+      category text NOT NULL,
+      difficulty text NOT NULL,
+      text text NOT NULL,
+      requires_proof boolean NOT NULL DEFAULT false,
+      enabled boolean NOT NULL DEFAULT true,
+      created_by text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS tod_custom_content_guild_key_uidx
+     ON tod_custom_content (guild_id, content_key)`,
 ] as const;
 
 export async function ensureSchema(): Promise<void> {

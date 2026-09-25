@@ -70,6 +70,8 @@ import {
   handleServiceOrderSelect,
   handleServiceOrderModal,
 } from "./features/serviceOrders";
+import { handleAltsCommand, handleAltButton, handleAltModal } from "./features/alts";
+import { handleTodCommand, handleTodButton, handleTodModal } from "./features/tod";
 import { handleLeaderboard } from "./features/leaderboard";
 import { handleViewLink, handleViewLinkAutocomplete } from "./features/viewLink";
 import {
@@ -133,6 +135,15 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleMarketCommand(interaction));
         case "leveling":
           return void (await openLevelingCommand(interaction));
+        case "alts":
+          return void (await handleAltsCommand(interaction));
+        case "tod":
+        case "truth":
+        case "dare":
+        case "truthordare":
+        case "spin":
+        case "challenge":
+          return void (await handleTodCommand(interaction));
       }
       return;
     }
@@ -203,6 +214,10 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleLinkButton(interaction));
         case NS.svc:
           return void (await handleServiceOrderButton(interaction));
+        case NS.alt:
+          return void (await handleAltButton(interaction));
+        case NS.tod:
+          return void (await handleTodButton(interaction));
       }
       return;
     }
@@ -229,6 +244,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.mkt) return void (await handleMarketModal(interaction));
       if (ns === NS.link) return void (await handleLinkModal(interaction));
       if (ns === NS.svc) return void (await handleServiceOrderModal(interaction));
+      if (ns === NS.alt) return void (await handleAltModal(interaction));
+      if (ns === NS.tod) return void (await handleTodModal(interaction));
       return;
     }
 
