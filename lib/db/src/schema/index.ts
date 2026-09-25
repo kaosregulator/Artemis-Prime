@@ -19,3 +19,5 @@ export * from "./connect_sessions";
 export * from "./sessions";
 export * from "./service_orders";
 export * from "./service_order_reviews";
+export * from "./alt_daily_logs";
+export * from "./tod";

@@ -525,4 +525,149 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         )
     )
     .toJSON(),
+
+  // Patriots / Guardians alt board
+  new SlashCommandBuilder()
+    .setName("alts")
+    .setDescription("Patriot / Guardian alt log — submit daily counts & leaderboard")
+    .setDMPermission(false)
+    .addSubcommand((s) =>
+      s
+        .setName("panel")
+        .setDescription("Post the Submit + leaderboard panel (admins)")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Where to post (default: here)")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("leaderboard")
+        .setDescription("Show the alt leaderboard canvas")
+        .addStringOption((o) =>
+          o
+            .setName("mode")
+            .setDescription("Today or all-time")
+            .addChoices(
+              { name: "All-time", value: "alltime" },
+              { name: "Today", value: "today" }
+            )
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("today").setDescription("Show today's alt board")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("set")
+        .setDescription("Staff: set / backfill someone's alt count")
+        .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+        .addIntegerOption((o) =>
+          o
+            .setName("count")
+            .setDescription("Alts completed (1–100)")
+            .setRequired(true)
+            .setMinValue(1)
+            .setMaxValue(100)
+        )
+        .addStringOption((o) =>
+          o
+            .setName("date")
+            .setDescription("Activity day YYYY-MM-DD (default: today)")
+            .setRequired(false)
+        )
+    )
+    .toJSON(),
+
+  // Truth or Dare
+  new SlashCommandBuilder()
+    .setName("tod")
+    .setDescription("Truth or Dare — community mini-game")
+    .setDMPermission(false)
+    .addSubcommand((s) => s.setName("play").setDescription("Open Truth / Dare / Random picker"))
+    .addSubcommand((s) => s.setName("truth").setDescription("Get a truth prompt"))
+    .addSubcommand((s) => s.setName("dare").setDescription("Get a dare prompt"))
+    .addSubcommand((s) => s.setName("random").setDescription("Random truth or dare"))
+    .addSubcommand((s) => s.setName("spin").setDescription("Spin the chaos wheel"))
+    .addSubcommand((s) =>
+      s
+        .setName("challenge")
+        .setDescription("Challenge another member")
+        .addUserOption((o) => o.setName("user").setDescription("Who to challenge").setRequired(true))
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("profile")
+        .setDescription("View a ToD profile")
+        .addUserOption((o) => o.setName("user").setDescription("Whose profile").setRequired(false))
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("leaderboard")
+        .setDescription("ToD leaderboard")
+        .addStringOption((o) =>
+          o
+            .setName("sort")
+            .setDescription("Sort by")
+            .addChoices(
+              { name: "Most completed", value: "completed" },
+              { name: "Most dares", value: "dares" },
+              { name: "Most truths", value: "truths" },
+              { name: "Longest streak", value: "streak" },
+              { name: "Most points", value: "points" },
+              { name: "Most wins", value: "wins" }
+            )
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("anonymous").setDescription("Submit an anonymous truth")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("guess")
+        .setDescription("Guess who posted an anonymous truth")
+        .addIntegerOption((o) =>
+          o.setName("id").setDescription("Anonymous truth id").setRequired(true)
+        )
+        .addUserOption((o) =>
+          o.setName("user").setDescription("Your guess").setRequired(true)
+        )
+    )
+    .addSubcommand((s) => s.setName("stats").setDescription("Server ToD stats"))
+    .addSubcommand((s) =>
+      s.setName("settings").setDescription("View ToD settings (admins)")
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("truth")
+    .setDescription("Truth or Dare — get a truth")
+    .setDMPermission(false)
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("dare")
+    .setDescription("Truth or Dare — get a dare")
+    .setDMPermission(false)
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("truthordare")
+    .setDescription("Truth or Dare — random challenge")
+    .setDMPermission(false)
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("spin")
+    .setDescription("Truth or Dare — spin the chaos wheel")
+    .setDMPermission(false)
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("challenge")
+    .setDescription("Truth or Dare — challenge another member")
+    .setDMPermission(false)
+    .addUserOption((o) =>
+      o.setName("user").setDescription("Who to challenge").setRequired(true)
+    )
+    .toJSON(),
 ];

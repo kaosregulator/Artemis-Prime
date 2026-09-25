@@ -22,6 +22,8 @@ export const NS = {
   mkt: "mkt", // Marketplace Hub (/market) — avatar items
   link: "lnk", // Avatar link hub (/link) — Discord ↔ Roblox face
   svc: "svc", // Leveling / service-order queue
+  alt: "alt", // Patriots / Guardians alt board
+  tod: "tod", // Truth or Dare
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -342,4 +344,19 @@ export const svcReviewRecommend = (orderId: number, yes: 0 | 1) =>
 export const svcReviewPhotos = (orderId: number) => id(NS.svc, "reviewPhotos", orderId);
 export const svcReviewSkipPhotos = (orderId: number) => id(NS.svc, "reviewSkipPhotos", orderId);
 export const svcReviewCommentModal = (orderId: number) => id(NS.svc, "reviewComment", orderId);
+
+/* Patriots / Guardians alt board */
+export const ALT_SUBMIT = id(NS.alt, "submit");
+export const ALT_SUBMIT_MODAL = id(NS.alt, "submitModal");
+export const ALT_LEADERBOARD_REFRESH = id(NS.alt, "lbRefresh");
+
+/* Truth or Dare */
+export const todPick = (choice: string) => id(NS.tod, "pick", choice);
+/** Arg = `${challengerId}_${targetId}_${choice}` (underscores — Discord snowflakes are numeric). */
+export const todChallengePick = (challengerId: string, targetId: string, choice: string) =>
+  id(NS.tod, "chalPick", `${challengerId}_${targetId}_${choice}`);
+export const todComplete = (challengeId: number) => id(NS.tod, "complete", challengeId);
+export const todPass = (challengeId: number) => id(NS.tod, "pass", challengeId);
+export const todReroll = (challengeId: number) => id(NS.tod, "reroll", challengeId);
+export const TOD_ANON_MODAL = id(NS.tod, "anonModal");
 
