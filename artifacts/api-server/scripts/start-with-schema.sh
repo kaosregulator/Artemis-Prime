@@ -1,5 +1,5 @@
 #!/bin/sh
-# Railway / Docker entrypoint: apply Drizzle schema, then start the API + bot.
+# Railway / Northflank / Docker entrypoint: apply Drizzle schema, then start the API + bot.
 # Runs BEFORE Node boots so /help, /xpwarn, /link, and the scheduler see tables.
 set -eu
 
@@ -14,5 +14,5 @@ echo "Applying database schema (drizzle-kit push, no --force)..."
 cd /app
 CI=true pnpm --filter @workspace/db push
 
-echo "Starting ClanXP API server..."
+echo "Starting Artemis Prime API server..."
 exec node --enable-source-maps artifacts/api-server/dist/index.mjs

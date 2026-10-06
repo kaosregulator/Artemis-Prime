@@ -75,7 +75,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   }
 
   const png = await renderOffThread("helpCard", {
-    communityName: clan?.clanName ?? "ClanXP",
+    communityName: clan?.clanName ?? "Artemis Prime",
     activityName: activity,
     sections,
   });

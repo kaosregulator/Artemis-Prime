@@ -1,7 +1,7 @@
-# Build context excludes for the Railway/Docker build.
-# Docker only reads a .dockerignore from the build-context root (the repo root
-# on Railway), so this file — not artifacts/api-server/.dockerignore — is the
-# one that actually applies to the deploy build.
+# Build context excludes for Railway / Northflank / Docker builds.
+# Docker only reads a .dockerignore from the build-context root (the repo root),
+# so this file — not artifacts/api-server/.dockerignore — is the one that
+# actually applies to the deploy build.
 
 # Dependencies and build output are recreated inside the image.
 node_modules
@@ -25,7 +25,7 @@ dist
 coverage
 .nyc_output
 
-# Replit-specific bits, unused on Railway
+# Replit-specific bits, unused on Railway / Northflank
 .replit
 .replitignore
 **/.replit-artifact

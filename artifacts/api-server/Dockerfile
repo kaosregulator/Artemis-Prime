@@ -1,5 +1,8 @@
-# Railway-ready single-container build for ClanXP
+# Portable single-container build for Artemis Prime (Railway + Northflank + Docker)
 # Builds frontend + API server, serves everything from Express
+#
+# Northflank: Dockerfile path /artifacts/api-server/Dockerfile, build context /
+# Railway: railway.json / railway.toml point at this file
 
 FROM node:24-slim AS builder
 WORKDIR /app
@@ -61,7 +64,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 # API bundle + static frontend (api-zod / db schema are already bundled into the
 # server for runtime queries). Separately copy Drizzle config + schema source so
-# `drizzle-kit push` can create/update tables on a fresh Railway Postgres before
+# `drizzle-kit push` can create/update tables on a fresh Postgres before
 # the bot starts.
 COPY --from=builder /app/artifacts/api-server/dist artifacts/api-server/dist
 COPY --from=builder /app/artifacts/clan-xp-tracker/dist/public artifacts/clan-xp-tracker/dist/public
@@ -70,11 +73,11 @@ COPY --from=builder /app/lib/db/src lib/db/src
 COPY artifacts/api-server/scripts/start-with-schema.sh artifacts/api-server/scripts/start-with-schema.sh
 RUN chmod +x artifacts/api-server/scripts/start-with-schema.sh
 
-# Railway injects its own PORT and overrides this; the default just keeps the
-# container bootable (and aligned with EXPOSE) if PORT is ever left unset.
+# Hosts may inject PORT (Railway does). The default keeps the container bootable
+# and aligned with EXPOSE 8080 for Northflank / plain Docker when PORT is unset.
 ENV PORT=8080
 ENV BLOXSCOUT_DATA_DIR=/tmp/bloxscout
 EXPOSE 8080
-# Schema push runs first (see start-with-schema.sh); Railway startCommand must
-# match this so deploys do not skip the migration step.
+# Schema push runs first (see start-with-schema.sh). Keep this CMD (or an
+# identical startCommand) so deploys do not skip the migration step.
 CMD ["sh", "artifacts/api-server/scripts/start-with-schema.sh"]

@@ -85,7 +85,7 @@ export default function LandingPage() {
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <Trophy className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg tracking-tight">ClanXP</span>
+          <span className="font-bold text-lg tracking-tight">Artemis Prime</span>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/docs">
@@ -156,7 +156,7 @@ export default function LandingPage() {
           </div>
           <h2 className="text-3xl font-bold mb-4">Ready to get started?</h2>
           <p className="text-muted-foreground mb-8 text-lg">
-            Add ClanXP to your server, run <code className="px-1.5 py-0.5 rounded bg-muted">/setup</code>, and
+            Add Artemis Prime to your server, run <code className="px-1.5 py-0.5 rounded bg-muted">/setup</code>, and
             you're tracking today.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -173,7 +173,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-border px-6 py-8 text-center text-muted-foreground text-sm">
-        <p>© {new Date().getFullYear()} ClanXP — a Discord-first activity &amp; XP tracker.</p>
+        <p>© {new Date().getFullYear()} Artemis Prime — a Discord-first activity &amp; XP tracker.</p>
       </footer>
     </div>
   );

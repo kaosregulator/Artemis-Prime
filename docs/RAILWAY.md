@@ -1,9 +1,12 @@
-# Deploying ClanXP to Railway
+# Deploying Artemis Prime to Railway
 
-ClanXP builds and runs as a **single container**: the Dockerfile compiles the
+Artemis Prime builds and runs as a **single container**: the Dockerfile compiles the
 React frontend and the Express + Discord bot API server, then serves the static
 frontend and the API from one process. Railway builds it straight from this
 repo — no extra services besides a Postgres database.
+
+Northflank is also supported — see [`NORTHFLANK.md`](./NORTHFLANK.md). The same
+Dockerfile and start script work on both hosts.
 
 The build/deploy settings are already committed:
 
@@ -15,7 +18,7 @@ The build/deploy settings are already committed:
 ## 1. Create the project
 
 1. In Railway, click **New** → **Deploy from GitHub repo**.
-2. Choose **`kaosregulator/clan-xp-tracker`** and the branch you want to deploy
+2. Choose **`kaosregulator/Artemis-Prime`** and the branch you want to deploy
    (e.g. `main`).
 3. Railway reads `railway.json` and builds with the Dockerfile automatically —
    you don't need to change the builder or start command.
@@ -55,7 +58,7 @@ schema changes on later deploys.
 
 You do **not** need to open a Railway shell or run `pnpm --filter @workspace/db
 push` manually for normal deploys. Watch deploy logs for
-`Applying database schema` / drizzle-kit output, then `Starting ClanXP API
+`Applying database schema` / drizzle-kit output, then `Starting Artemis Prime API
 server...`.
 
 Boot still runs additive `ensureSchema` (safe `ADD COLUMN IF NOT EXISTS` /

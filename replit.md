@@ -1,4 +1,4 @@
-# ClanXP — Discord Clan XP Tracker
+# Artemis Prime — Discord Clan XP Tracker
 
 A Discord-first daily activity & XP tracker. Members prove daily activity by posting a screenshot in the submission channel; the bot forwards an interactive review card to a private staff queue where officers approve/reject/remind/warn. Streaks, approval %, warnings and reminders update automatically. The whole experience lives inside Discord through fast **embed hubs** (`/xp`, `/xpadmin`) and buttons/modals — the companion website is a thin login/invite/docs surface. Staff who run `/xp` get an inline **admin profile**: Warn / Remind / Remind Role pickers plus Review Queue / Missing / Leaderboard shortcuts.
 

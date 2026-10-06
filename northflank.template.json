@@ -1,0 +1,221 @@
+{
+  "$schema": "https://api.northflank.com/v1/schemas/template.json",
+  "apiVersion": "v1.2",
+  "name": "Artemis Prime",
+  "description": "Deploy Artemis Prime (Discord bot + web dashboard) with PostgreSQL on Northflank. After the template run, set Discord secrets and DISCORD_REDIRECT_URI to https://<service-dns>/api/auth/callback.",
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "allow"
+  },
+  "arguments": {
+    "GITHUB_REPO_URL": "https://github.com/kaosregulator/Artemis-Prime",
+    "GITHUB_BRANCH": "main",
+    "PROJECT_REGION": "europe-west"
+  },
+  "argumentOverrides": {
+    "SESSION_SECRET": "${fn.randomSecret(64)}",
+    "DISCORD_CLIENT_ID": "replace-me",
+    "DISCORD_CLIENT_SECRET": "replace-me",
+    "DISCORD_BOT_TOKEN": "replace-me"
+  },
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "Project",
+          "ref": "project",
+          "spec": {
+            "name": "Artemis Prime",
+            "description": "Artemis Prime Discord bot and dashboard",
+            "region": "${args.PROJECT_REGION}",
+            "color": "#1B3A4B",
+            "networking": {
+              "allowedIngressProjects": []
+            }
+          }
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "sequential",
+            "context": {
+              "projectId": "${refs.project.id}"
+            },
+            "steps": [
+              {
+                "kind": "Addon",
+                "ref": "database",
+                "spec": {
+                  "name": "Postgres",
+                  "type": "postgresql",
+                  "version": "latest",
+                  "tlsEnabled": true,
+                  "externalAccessEnabled": false,
+                  "billing": {
+                    "replicas": 1,
+                    "storage": 4096,
+                    "storageClass": "ssd",
+                    "deploymentPlan": "nf-compute-50"
+                  }
+                }
+              },
+              {
+                "kind": "CombinedService",
+                "ref": "app",
+                "spec": {
+                  "name": "artemis-prime",
+                  "description": "API, web UI, and Discord bot worker",
+                  "vcsData": {
+                    "projectType": "github",
+                    "projectUrl": "${args.GITHUB_REPO_URL}",
+                    "projectBranch": "${args.GITHUB_BRANCH}"
+                  },
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "buildkit",
+                      "dockerWorkDir": "/",
+                      "dockerFilePath": "/artifacts/api-server/Dockerfile",
+                      "buildkit": {
+                        "useCache": true,
+                        "cacheStorageSize": 16384
+                      }
+                    }
+                  },
+                  "disabledCI": false,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": false
+                  },
+                  "deployment": {
+                    "instances": 1,
+                    "storage": {
+                      "ephemeralStorage": {
+                        "storageSize": 2048
+                      },
+                      "shmSize": 64
+                    },
+                    "docker": {
+                      "configType": "default"
+                    }
+                  },
+                  "ports": [
+                    {
+                      "name": "http",
+                      "internalPort": 8080,
+                      "protocol": "HTTP",
+                      "public": true,
+                      "domains": [],
+                      "security": {
+                        "policies": [],
+                        "credentials": []
+                      },
+                      "disableNfDomain": false
+                    }
+                  ],
+                  "billing": {
+                    "deploymentPlan": "nf-compute-50",
+                    "buildPlan": "nf-compute-400-16"
+                  },
+                  "runtimeEnvironment": {},
+                  "runtimeFiles": {},
+                  "buildArguments": {},
+                  "buildFiles": {}
+                }
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "secrets",
+                "spec": {
+                  "name": "Artemis Prime Secrets",
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "secrets": {
+                    "variables": {
+                      "PORT": "8080",
+                      "SESSION_SECRET": "${args.SESSION_SECRET}",
+                      "DISCORD_CLIENT_ID": "${args.DISCORD_CLIENT_ID}",
+                      "DISCORD_CLIENT_SECRET": "${args.DISCORD_CLIENT_SECRET}",
+                      "DISCORD_BOT_TOKEN": "${args.DISCORD_BOT_TOKEN}",
+                      "DISCORD_REDIRECT_URI": "https://${refs.app.ports.0.dns}/api/auth/callback"
+                    },
+                    "files": {}
+                  },
+                  "addonDependencies": [
+                    {
+                      "addonId": "${refs.database.id}",
+                      "keys": [
+                        {
+                          "keyName": "POSTGRES_URI",
+                          "aliases": ["DATABASE_URL"]
+                        }
+                      ]
+                    }
+                  ],
+                  "restrictions": {
+                    "restricted": true,
+                    "nfObjects": [
+                      {
+                        "id": "${refs.app.id}",
+                        "type": "service"
+                      }
+                    ],
+                    "tags": []
+                  }
+                }
+              },
+              {
+                "kind": "Workflow",
+                "spec": {
+                  "type": "parallel",
+                  "steps": [
+                    {
+                      "kind": "Condition",
+                      "spec": {
+                        "kind": "Addon",
+                        "spec": {
+                          "data": {
+                            "addonId": "${refs.database.id}"
+                          },
+                          "type": "running"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "Condition",
+                      "spec": {
+                        "kind": "Service",
+                        "spec": {
+                          "data": {
+                            "serviceId": "${refs.app.id}"
+                          },
+                          "type": "running"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "kind": "Action",
+                "ref": "restart-app",
+                "spec": {
+                  "kind": "Service",
+                  "spec": {
+                    "data": {
+                      "serviceId": "${refs.app.id}"
+                    },
+                    "type": "restart"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
