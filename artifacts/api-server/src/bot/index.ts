@@ -2,8 +2,6 @@ import { Client, GatewayIntentBits, Events, Partials, REST, Routes } from "disco
 import { logger } from "../lib/logger";
 import { commands } from "./commands";
 import { routeInteraction } from "./router";
-import { ensureFonts } from "./canvas/fonts";
-import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
 import { setCommandCenterClient } from "./services/commandCenter";
 import { setOrderTrackerClient } from "./services/orderTracker";
@@ -118,11 +116,9 @@ export function startBot() {
     return;
   }
 
-  // Warm the canvas fonts once at boot so the first hub render is fast.
-  ensureFonts();
-  // Pre-warm the render worker pool so the first interaction doesn't pay the
-  // thread-spawn cost.
-  initRenderPool();
+  // Canvas fonts + render workers initialise lazily on the first
+  // renderOffThread() call (see render-pool.ts / theme.ts). Eager pre-warm
+  // would load @napi-rs/canvas native bindings at boot and blow a 256 MB host.
 
   client = new Client({
     // Officers drive everything through slash commands and components, so the

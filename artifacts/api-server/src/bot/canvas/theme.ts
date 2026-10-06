@@ -11,6 +11,10 @@ import {
 import { ensureFonts, font, sanitizeText } from "./fonts";
 import { logger } from "../../lib/logger";
 
+// Re-export so card modules can keep importing from theme.
+export { PALETTE, type RGB } from "./palette";
+import { PALETTE } from "./palette";
+
 // The runtime is Node (no DOM lib), so alias the few canvas value/enum types
 // we reference instead of relying on the ambient DOM globals.
 type Baseline = "top" | "hanging" | "middle" | "alphabetic" | "ideographic" | "bottom";
@@ -21,30 +25,6 @@ type Gradient = ReturnType<SKRSContext2D["createLinearGradient"]>;
  * primitives — so the member hub, admin hub, profile and dashboards all read
  * as the same polished application.
  */
-// Light "grunge white" theme — one palette shared by every card. The panels
-// (cards/tiles) sit as clean light surfaces on the brand texture, with dark ink
-// text and accents darkened just enough to stay legible on white.
-export const PALETTE = {
-  bg0: "#dfe3ec", // deepest tone (gradient fallbacks)
-  bg1: "#eef1f6", // tile fill
-  card: "#ffffff", // main panel
-  cardAlt: "#e7eaf1", // progress track / secondary fill
-  border: "#d3d8e4",
-  borderSoft: "#e3e7f0",
-  text: "#14161f", // ink
-  soft: "#454b5c", // secondary ink
-  muted: "#7c8397", // tertiary / labels
-  blurple: "#3f51e0",
-  blurpleSoft: "#6f8bff",
-  violet: "#8b3ff0",
-  cyan: "#0e9cbb",
-  green: "#2e9e57",
-  greenBright: "#1fae63",
-  amber: "#c9820a",
-  red: "#e11d2b",
-} as const;
-
-export type RGB = string;
 
 export interface RenderCanvas {
   canvas: Canvas;

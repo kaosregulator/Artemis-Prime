@@ -17,7 +17,7 @@ import {
   type BaseMessageOptions,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
-import { PALETTE } from "../canvas/theme";
+import { PALETTE } from "../canvas/palette";
 import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
 import { getClan } from "./config";
