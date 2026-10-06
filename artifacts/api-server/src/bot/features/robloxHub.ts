@@ -1029,7 +1029,7 @@ async function buildIntegration(st: HubState): Promise<BaseMessageOptions> {
         },
         {
           label: "Clan XP in Discord",
-          value: "Already handled by ClanXP (/xp) — link via gameUsername",
+          value: "Already handled by Artemis Prime (/xp) — link via gameUsername",
         },
       ],
       note: "Public Roblox only · No cookies · No private MT stats · No alt-hunting",

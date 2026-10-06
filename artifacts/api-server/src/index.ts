@@ -44,8 +44,8 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
 
-  // Railway has no release phase — add missing columns before the Discord bot
-  // starts answering /link, /leaderboard, and standing cards.
+  // No separate release phase on Railway/Northflank — add missing columns
+  // before the Discord bot starts answering /link, /leaderboard, and cards.
   try {
     await ensureSchema();
   } catch {

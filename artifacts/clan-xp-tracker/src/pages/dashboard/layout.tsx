@@ -181,7 +181,7 @@ export default function DashboardLayout({ guildId, children, currentPath = "" }:
           <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)}>
             <Menu className="w-5 h-5" />
           </Button>
-          <span className="font-semibold">ClanXP</span>
+          <span className="font-semibold">Artemis Prime</span>
         </div>
         <main className="flex-1 p-6">{children}</main>
       </div>

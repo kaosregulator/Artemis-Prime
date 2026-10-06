@@ -45,7 +45,7 @@ export default function GuildsPage() {
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <Trophy className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg tracking-tight">ClanXP</span>
+          <span className="font-bold text-lg tracking-tight">Artemis Prime</span>
         </div>
         {user && (
           <div className="flex items-center gap-3">
@@ -128,7 +128,7 @@ export default function GuildsPage() {
               <div className="flex-1">
                 <p className="font-medium">Add to another server</p>
                 <p className="text-sm text-muted-foreground">
-                  Invite the ClanXP bot to a new Discord server.
+                  Invite the Artemis Prime bot to a new Discord server.
                 </p>
               </div>
               <Button variant="outline" size="sm" onClick={async () => {

@@ -167,7 +167,7 @@ export async function rbxHttp<T>(
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "ClanXP-RobloxHub/1.0",
+        "User-Agent": "ArtemisPrime-RobloxHub/1.0",
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,

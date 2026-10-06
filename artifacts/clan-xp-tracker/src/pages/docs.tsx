@@ -31,7 +31,7 @@ export default function DocsPage() {
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Trophy className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg tracking-tight">ClanXP Docs</span>
+            <span className="font-bold text-lg tracking-tight">Artemis Prime Docs</span>
           </div>
         </Link>
         <Link href="/">
@@ -46,7 +46,7 @@ export default function DocsPage() {
         <section className="py-12">
           <h1 className="text-4xl font-extrabold tracking-tight mb-4">Documentation</h1>
           <p className="text-lg text-muted-foreground">
-            ClanXP is a Discord-first daily activity &amp; XP tracker. Members prove daily activity with a
+            Artemis Prime is a Discord-first daily activity &amp; XP tracker. Members prove daily activity with a
             screenshot; staff review it; streaks, warnings, reminders and dashboards update automatically.
             It's Roblox-first by default but works for any game.
           </p>

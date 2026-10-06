@@ -76,7 +76,7 @@ export default function SetupPage({ guildId }: Props) {
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <Trophy className="w-4 h-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-lg">ClanXP Setup</span>
+          <span className="font-bold text-lg">Artemis Prime Setup</span>
         </div>
 
         <div className="flex items-center gap-2 mb-10">

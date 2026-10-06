@@ -25,7 +25,7 @@
  *   - Private inventory when the user hides it
  *
  * CLAN XP TRACKING (this Discord bot):
- *   ClanXP already tracks weekly XP / roles / reminders for YOUR Discord clan.
+ *   Artemis Prime already tracks weekly XP / roles / reminders for YOUR Discord clan.
  *   That is independent of MT's private player DataStores.
  *   Optional bridge today: store the member's Roblox username in `gameUsername`
  *   and use /military player + group rank + pass ownership as public context.

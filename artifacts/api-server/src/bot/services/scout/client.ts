@@ -36,7 +36,7 @@ export function resolveScoutDbPath(): string {
 export function getScoutClient(): RobloxClient {
   if (!client) {
     client = new RobloxClient({
-      userAgent: "ClanXP-ScoutHub/1.0 (+https://github.com/kaosregulator/Clan-XP-Tracker)",
+      userAgent: "ArtemisPrime-ScoutHub/1.0 (+https://github.com/kaosregulator/Artemis-Prime)",
       requestTimeoutMs: 12_000,
       maxRetries: 2,
     });
