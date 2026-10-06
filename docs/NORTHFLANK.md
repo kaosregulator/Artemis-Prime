@@ -48,6 +48,14 @@ sh artifacts/api-server/scripts/start-with-schema.sh
 That script runs `drizzle-kit push` (non-interactive, no `--force`) then starts
 the API + Discord bot worker.
 
+`lib/db/drizzle.config.ts` scopes push to Artemis Prime application tables and
+**excludes managed Postgres / extension objects** in `public` (for example
+`pg_stat_kcache_detail` from Northflank’s monitoring extensions). Without that
+filter, drizzle-kit would try to `DROP` those views and fail with
+`must be owner of view pg_stat_kcache_detail` because the app DB role does not
+own them. Do **not** “fix” that by granting superuser or changing extension
+ownership — the config filter is the intended solution.
+
 ## Environment variables
 
 Create a **secret group** of runtime environment variables and apply it to the
@@ -96,6 +104,12 @@ Same behavior as Railway:
 Watch deploy logs for `Applying database schema` then
 `Starting Artemis Prime API server...`.
 
+If logs stop after `Pulling schema from database...` with
+`must be owner of view pg_stat_kcache_detail` (or similar extension objects),
+confirm you are on a commit that includes the `tablesFilter` exclusions in
+`lib/db/drizzle.config.ts`. Redeploy that commit — do not grant the app role
+superuser privileges.
+
 ## Resources
 
 Discord bots + canvas rendering need a bit of headroom. Start around:
@@ -107,6 +121,11 @@ Discord bots + canvas rendering need a bit of headroom. Start around:
 
 ## Troubleshooting
 
+- **`must be owner of view pg_stat_kcache_detail`** (or other `pg_stat_*`
+  objects) during schema push → unmanaged Northflank extension objects were
+  being targeted by an older `drizzle-kit push` config. Deploy a build that
+  includes the `tablesFilter` exclusions in `lib/db/drizzle.config.ts`. Do not
+  change extension ownership or grant superuser to the app role.
 - **Crash loop immediately** → missing `DATABASE_URL` or `SESSION_SECRET`.
 - **Build fails on Dockerfile path** → confirm path is
   `/artifacts/api-server/Dockerfile` and build context is `/`.
