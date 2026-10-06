@@ -73,7 +73,9 @@ COPY --from=builder /app/lib/db/src lib/db/src
 COPY --from=builder /app/lib/db/scripts lib/db/scripts
 COPY artifacts/api-server/scripts/start-with-schema.sh artifacts/api-server/scripts/start-with-schema.sh
 RUN chmod +x artifacts/api-server/scripts/start-with-schema.sh \
-  && chmod +x lib/db/scripts/push-schema.sh lib/db/scripts/check-application-tables.mjs
+  && chmod +x lib/db/scripts/push-schema.sh \
+    lib/db/scripts/check-application-tables.mjs \
+    lib/db/scripts/schema-present.mjs
 
 # Hosts may inject PORT (Railway does). The default keeps the container bootable
 # and aligned with EXPOSE 8080 for Northflank / plain Docker when PORT is unset.
