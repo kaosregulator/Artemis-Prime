@@ -48,13 +48,18 @@ sh artifacts/api-server/scripts/start-with-schema.sh
 That script runs `drizzle-kit push` (non-interactive, no `--force`) then starts
 the API + Discord bot worker.
 
-`lib/db/drizzle.config.ts` scopes push to Artemis Prime application tables and
-**excludes managed Postgres / extension objects** in `public` (for example
-`pg_stat_kcache_detail` from Northflank’s monitoring extensions). Without that
-filter, drizzle-kit would try to `DROP` those views and fail with
+`lib/db/drizzle.config.ts` **whitelists only** Artemis Prime application tables
+(from `lib/db/src/applicationTables.ts`). Managed Postgres / extension objects
+in `public` (for example `pg_stat_kcache_detail` from Northflank’s monitoring
+extensions) are never part of the push diff. Without that whitelist, drizzle-kit
+would try to `DROP` those views and fail with
 `must be owner of view pg_stat_kcache_detail` because the app DB role does not
 own them. Do **not** “fix” that by granting superuser or changing extension
-ownership — the config filter is the intended solution.
+ownership — the application-table whitelist is the intended solution.
+
+Do **not** combine that whitelist with drizzle-kit `extensionsFilters` (PostGIS
+negate globs): those negate patterns re-admit unmanaged objects into the push
+diff. Boot also fails closed if drizzle-kit still logs an ownership / ERROR line.
 
 ## Environment variables
 
@@ -106,9 +111,10 @@ Watch deploy logs for `Applying database schema` then
 
 If logs stop after `Pulling schema from database...` with
 `must be owner of view pg_stat_kcache_detail` (or similar extension objects),
-confirm you are on a commit that includes the `tablesFilter` exclusions in
-`lib/db/drizzle.config.ts`. Redeploy that commit — do not grant the app role
-superuser privileges.
+confirm you are on a commit that includes the application-table whitelist
+(`lib/db/src/applicationTables.ts` + `tablesFilter` in
+`lib/db/drizzle.config.ts`) and the fail-closed `push-schema.sh` wrapper.
+Redeploy that commit — do not grant the app role superuser privileges.
 
 ## Resources
 
@@ -124,7 +130,7 @@ Discord bots + canvas rendering need a bit of headroom. Start around:
 - **`must be owner of view pg_stat_kcache_detail`** (or other `pg_stat_*`
   objects) during schema push → unmanaged Northflank extension objects were
   being targeted by an older `drizzle-kit push` config. Deploy a build that
-  includes the `tablesFilter` exclusions in `lib/db/drizzle.config.ts`. Do not
+  whitelists only `lib/db/src/applicationTables.ts` via `tablesFilter`. Do not
   change extension ownership or grant superuser to the app role.
 - **Crash loop immediately** → missing `DATABASE_URL` or `SESSION_SECRET`.
 - **Build fails on Dockerfile path** → confirm path is
