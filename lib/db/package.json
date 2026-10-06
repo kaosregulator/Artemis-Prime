@@ -8,8 +8,9 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push": "sh ./scripts/push-schema.sh",
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "check-tables": "node ./scripts/check-application-tables.mjs"
   },
   "dependencies": {
     "drizzle-kit": "^0.31.10",
