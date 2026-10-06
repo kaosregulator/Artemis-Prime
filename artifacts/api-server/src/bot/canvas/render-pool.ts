@@ -6,15 +6,19 @@
  * freed immediately (no synchronous blocking) while the worker thread does
  * the CPU-heavy canvas drawing.
  *
- * Pool size is intentionally small (2). Canvas renders are fast enough that
- * queuing is rare for a community-scale bot, and each worker holds @napi-rs/
- * canvas native bindings in its own thread — more workers = more RAM.
+ * Pool size is intentionally 1 for 256 MB hosts (Northflank Free). Canvas
+ * renders are fast enough that queuing is rare for a community-scale bot, and
+ * each worker holds @napi-rs/canvas native bindings in its own thread —
+ * more workers = more RAM.
+ *
+ * Workers are created lazily on the first renderOffThread() call so boot does
+ * not pay native-binding / thread cost until a card is actually needed.
  */
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { logger } from "../../lib/logger";
 
-const POOL_SIZE = 2;
+const POOL_SIZE = 1;
 
 interface Pending {
   resolve: (buf: Buffer) => void;
@@ -81,7 +85,10 @@ function buildWorker(): Worker {
   return w;
 }
 
-/** Call once at bot startup to pre-warm the worker threads. */
+/**
+ * Ensure the render worker pool exists. Prefer calling via renderOffThread()
+ * (lazy). Safe to call explicitly in tests.
+ */
 export function initRenderPool(): void {
   if (workers.length > 0) return;
   workers = Array.from({ length: POOL_SIZE }, buildWorker);
@@ -97,12 +104,12 @@ export function initRenderPool(): void {
  * fetches and caches the image itself.
  */
 export function renderOffThread(fn: string, params: unknown): Promise<Buffer> {
-  // Lazy init in case initRenderPool() was not called explicitly.
+  // Lazy init — avoids loading @napi-rs/canvas at bot startup on 256 MB hosts.
   if (workers.length === 0) initRenderPool();
 
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    // Round-robin across the pool.
+    // Round-robin across the pool (size 1 is a no-op).
     const w = workers[nextWorker % workers.length]!;
     nextWorker++;
     const timer = setTimeout(() => {
