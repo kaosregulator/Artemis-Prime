@@ -265,6 +265,16 @@ export async function ensureSchema(): Promise<void> {
     }
     logger.info("Database schema ensured (clan_members link/leaderboard columns)");
   } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === "42501") {
+      // Restored dumps: app role may lack ownership. Tables already exist and
+      // are readable — skip additive ALTERs rather than failing boot.
+      logger.warn(
+        { err },
+        "ensureSchema skipped (insufficient privileges) — expected after a dump restore when the app role is not table owner",
+      );
+      return;
+    }
     logger.error(
       { err },
       "Failed to ensure database schema — /link and leaderboard may fail until deploy runs start-with-schema.sh (drizzle-kit push) or you run: pnpm --filter @workspace/db push"

@@ -59,7 +59,9 @@ schema changes on later deploys.
 `lib/db/drizzle.config.ts` whitelists only Artemis Prime tables
 (`lib/db/src/applicationTables.ts`) so managed Postgres / extension objects
 (e.g. `pg_stat_*`) are ignored — the same push path works on hosts like
-Northflank that install monitoring views in `public`.
+Northflank that install monitoring views in `public`. If every application
+table already exists (restored dump), startup skips `drizzle-kit push` so it
+does not attempt ownership-requiring ALTERs against production data.
 
 You do **not** need to open a Railway shell or run `pnpm --filter @workspace/db
 push` manually for normal deploys. Watch deploy logs for

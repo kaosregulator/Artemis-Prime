@@ -101,13 +101,24 @@ terminator.
 
 ## Database schema
 
-Same behavior as Railway:
+Same behavior as Railway on a **fresh** database:
 
-1. Container start → `start-with-schema.sh` → `drizzle-kit push`
+1. Container start → `start-with-schema.sh` → `drizzle-kit push` (creates tables)
 2. Node boot → additive `ensureSchema()` safety net
 
-Watch deploy logs for `Applying database schema` then
-`Starting Artemis Prime API server...`.
+If **all** application tables already exist (for example after restoring a
+Railway dump into Northflank Postgres), startup **skips** `drizzle-kit push`
+and continues. That preserves production data and avoids a known failure mode:
+when tables are owned by the dump/restore role rather than the app
+`DATABASE_URL` role, drizzle-kit cannot see primary keys / unique constraints
+and tries to `ADD PRIMARY KEY`, which errors with `must be owner of table …`.
+
+Watch deploy logs for either:
+
+- `Application tables already exist — skipping drizzle-kit push…`, or
+- `Applying application schema via drizzle-kit push…` then `Changes applied`
+
+then `Starting Artemis Prime API server...`.
 
 If logs stop after `Pulling schema from database...` with
 `must be owner of view pg_stat_kcache_detail` (or similar extension objects),
@@ -115,6 +126,16 @@ confirm you are on a commit that includes the application-table whitelist
 (`lib/db/src/applicationTables.ts` + `tablesFilter` in
 `lib/db/drizzle.config.ts`) and the fail-closed `push-schema.sh` wrapper.
 Redeploy that commit — do not grant the app role superuser privileges.
+
+If logs show `must be owner of table …` after a dump restore, either redeploy
+a build that skips push when tables exist, or (optional, once) reassign table
+ownership to the app role so future additive pushes can succeed:
+
+```sql
+-- Run as a privileged role on the Northflank DB only (never on Railway).
+-- Replace app_user with the role from DATABASE_URL.
+REASSIGN OWNED BY <dump_or_restore_role> TO <app_user>;
+```
 
 ## Resources
 
@@ -127,6 +148,11 @@ Discord bots + canvas rendering need a bit of headroom. Start around:
 
 ## Troubleshooting
 
+- **`must be owner of table …` during schema push after a dump restore** →
+  tables are owned by the restore role, not the app role. Deploy a build that
+  skips push when application tables already exist. Optionally reassign
+  ownership to the app role once (see Database schema above). Do **not**
+  `DROP SCHEMA public CASCADE` or truncate production tables.
 - **`must be owner of view pg_stat_kcache_detail`** (or other `pg_stat_*`
   objects) during schema push → unmanaged Northflank extension objects were
   being targeted by an older `drizzle-kit push` config. Deploy a build that

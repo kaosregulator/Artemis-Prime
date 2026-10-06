@@ -8,11 +8,12 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
-echo "Applying database schema (drizzle-kit push, application-table whitelist, no --force)..."
-# CI=true keeps drizzle-kit non-interactive. Safe CREATE/ALTER statements apply
-# automatically; data-loss statements are NOT auto-approved (we never pass --force).
-# push-schema.sh also fails closed if drizzle-kit logs ownership errors on
-# managed extension views (pg_stat_kcache_detail, etc.).
+echo "Applying database schema (skip push if tables already exist; whitelist; no --force)..."
+# CI=true keeps drizzle-kit non-interactive when push does run. Safe CREATE/ALTER
+# statements apply automatically; data-loss statements are NOT auto-approved
+# (we never pass --force). push-schema.sh skips push entirely when all
+# application tables are already present (restored production DBs) and fails
+# closed if drizzle-kit logs ownership errors on managed extension views.
 cd /app
 CI=true pnpm --filter @workspace/db push
 

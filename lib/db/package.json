@@ -10,7 +10,8 @@
   "scripts": {
     "push": "sh ./scripts/push-schema.sh",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
-    "check-tables": "node ./scripts/check-application-tables.mjs"
+    "check-tables": "node ./scripts/check-application-tables.mjs",
+    "schema-present": "node ./scripts/schema-present.mjs"
   },
   "dependencies": {
     "drizzle-kit": "^0.31.10",
