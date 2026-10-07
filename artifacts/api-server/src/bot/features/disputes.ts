@@ -308,6 +308,11 @@ async function officerGuard(
   return clan;
 }
 
+/** Discord rejects an embed description over 4096 characters. */
+function clipEmbed(text: string): string {
+  return text.length <= 4096 ? text : `${text.slice(0, 4093)}…`;
+}
+
 function disputeLine(d: Dispute): string {
   const type = DISPUTE_TYPE_LABEL[(d.disputeType as DisputeType) || "warning"] ?? d.disputeType;
   const ch = d.channelId ? ` · <#${d.channelId}>` : "";
@@ -319,7 +324,9 @@ export async function buildDisputeReview(clan: Clan): Promise<BaseMessageOptions
   const embed = new EmbedBuilder()
     .setColor(open.length ? 0xfaa61a : 0x3ba55d)
     .setTitle(`Disputes — ${clan.clanName}`)
-    .setDescription(open.length ? `**${open.length} open**\n${open.map(disputeLine).join("\n")}` : "No open disputes.")
+    .setDescription(
+      clipEmbed(open.length ? `**${open.length} open**\n${open.map(disputeLine).join("\n")}` : "No open disputes.")
+    )
     .addFields(
       { name: "1  Open", value: "Pick one from the menu.", inline: true },
       { name: "2  Work it", value: "Use its private channel.", inline: true },

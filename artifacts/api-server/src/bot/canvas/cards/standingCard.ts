@@ -43,7 +43,9 @@ export interface StandingCardView {
 export async function renderStandingCard(view: StandingCardView): Promise<Buffer> {
   const W = 1000;
   const warnRows = view.warnings.slice(0, 6);
-  const H = Math.max(620, 360 + warnRows.length * 72 + 80);
+  // Keep the footer below the last history row. Six rows used to land on top of it.
+  const historyBottom = warnRows.length ? 430 + (warnRows.length - 1) * 72 + 64 : 520;
+  const H = Math.max(620, historyBottom + 64);
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);

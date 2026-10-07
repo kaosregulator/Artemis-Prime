@@ -51,6 +51,11 @@ async function guard(
   return clan;
 }
 
+/** Discord rejects an embed description over 4096 characters. */
+function clipEmbed(text: string): string {
+  return text.length <= 4096 ? text : `${text.slice(0, 4093)}…`;
+}
+
 function ticketLine(t: Ticket): string {
   const who = t.assignedToUsername ? ` · 👤 ${t.assignedToUsername}` : "";
   return `${STATUS_BADGE[t.status] ?? t.status} · **#${t.id}** ${t.username} — ${t.issue.slice(0, 70)}${who} · ${relative(t.createdAt)}`;
@@ -61,7 +66,9 @@ export async function buildTicketList(clan: Clan): Promise<BaseMessageOptions> {
   const embed = new EmbedBuilder()
     .setColor(open.length ? 0xfaa61a : 0x3ba55d)
     .setTitle(`Tickets — ${clan.clanName}`)
-    .setDescription(open.length ? `**${open.length} open**\n${open.map(ticketLine).join("\n")}` : "No open tickets.")
+    .setDescription(
+      clipEmbed(open.length ? `**${open.length} open**\n${open.map(ticketLine).join("\n")}` : "No open tickets.")
+    )
     .addFields(
       { name: "1  Assign", value: "Pick a ticket, then assign it.", inline: true },
       { name: "2  In progress", value: "Mark it once you start.", inline: true },
