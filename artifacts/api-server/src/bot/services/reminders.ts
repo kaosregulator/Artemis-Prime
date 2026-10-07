@@ -1,6 +1,6 @@
 import { db, remindersTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember } from "@workspace/db";
-import { eq, and, gte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, desc, sql, inArray } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type User } from "discord.js";
 import { logAction, sendLog } from "./logging";
@@ -355,11 +355,19 @@ export async function listRecentReminders(
     .limit(limit);
 }
 
-/** Who has been reminded the most, from every saved reminder row. */
+/**
+ * Who has been reminded the most, from saved reminder rows.
+ * When `userIds` is set, only those people are ranked.
+ */
 export async function rankByReminders(
   guildId: string,
-  limit = 10
+  limit = 10,
+  userIds?: string[]
 ): Promise<{ userId: string; username: string; count: number }[]> {
+  if (userIds && userIds.length === 0) return [];
+  const where = userIds
+    ? and(eq(remindersTable.guildId, guildId), inArray(remindersTable.userId, userIds))
+    : eq(remindersTable.guildId, guildId);
   const rows = await db
     .select({
       userId: remindersTable.userId,
@@ -367,7 +375,7 @@ export async function rankByReminders(
       count: sql<number>`count(*)::int`.mapWith(Number),
     })
     .from(remindersTable)
-    .where(eq(remindersTable.guildId, guildId))
+    .where(where)
     .groupBy(remindersTable.userId)
     .orderBy(desc(sql`count(*)`))
     .limit(limit);

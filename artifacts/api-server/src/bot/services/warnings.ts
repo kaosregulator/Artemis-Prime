@@ -1,6 +1,6 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember, Warning } from "@workspace/db";
-import { eq, and, isNull, desc, gte, lt, sql } from "drizzle-orm";
+import { eq, and, isNull, desc, gte, lt, sql, inArray } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
@@ -594,8 +594,18 @@ export interface EnforcementRankRow {
 /**
  * Who has the most saved warnings. Lifetime count includes removed rows so
  * past warnings still rank. `active` is the subset that has not been cleared.
+ * When `userIds` is set, only those people are ranked — the warning board
+ * passes the members who currently hold the activity track role.
  */
-export async function rankByWarnings(guildId: string, limit = 10): Promise<EnforcementRankRow[]> {
+export async function rankByWarnings(
+  guildId: string,
+  limit = 10,
+  userIds?: string[]
+): Promise<EnforcementRankRow[]> {
+  if (userIds && userIds.length === 0) return [];
+  const where = userIds
+    ? and(eq(warningsTable.guildId, guildId), inArray(warningsTable.userId, userIds))
+    : eq(warningsTable.guildId, guildId);
   const rows = await db
     .select({
       userId: warningsTable.userId,
@@ -604,7 +614,7 @@ export async function rankByWarnings(guildId: string, limit = 10): Promise<Enfor
       active: sql<number>`sum(case when ${warningsTable.removedAt} is null then 1 else 0 end)::int`.mapWith(Number),
     })
     .from(warningsTable)
-    .where(eq(warningsTable.guildId, guildId))
+    .where(where)
     .groupBy(warningsTable.userId)
     .orderBy(desc(sql`count(*)`))
     .limit(limit);
