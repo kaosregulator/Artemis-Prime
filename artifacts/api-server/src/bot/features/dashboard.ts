@@ -500,7 +500,7 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   if (action === "board") {
     const page = Math.max(0, parseInt(arg ?? "0", 10) || 0);
     await interaction.editReply({
-      ...(await buildWarnBoardPayload(clan, page)),
+      ...(await buildWarnBoardPayload(clan, page, guild)),
       attachments: [],
     });
     return;
