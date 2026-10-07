@@ -3,18 +3,17 @@ import type { Clan, ClanMember } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type User } from "discord.js";
-import { discordRelative } from "./time";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyReminder, currentProgress, effectiveGoal, periodKey } from "./progress";
 import {
   memberReminderBody,
   periodAdjective,
   periodLabel,
-  nextPeriodReset,
   staffProgressDetail,
   containsStaffAccounting,
   categoryEnforcementNoun,
   enforcementEmbedAuthor,
+  activityWord,
 } from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { renderOffThread } from "../canvas/render-pool";
@@ -73,6 +72,8 @@ async function renderReminderCardSafe(
       message: body,
       periodLabel: periodAdjective(clan),
       categoryLabel: categoryLabel ?? null,
+      activityName: activityWord(clan),
+      clanLogoUrl: clan.clanLogoUrl ?? null,
     });
   } catch (err) {
     logger.warn({ err }, "Reminder card render failed — falling back to embed");
@@ -96,17 +97,16 @@ function reminderEmbed(
   faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null },
   categoryLabel?: string | null
 ): EmbedBuilder {
-  const deadline = discordRelative(nextPeriodReset(clan));
   const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
   const robloxUrl = faces?.robloxAvatarUrl || null;
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(0xfaa61a)
     .setAuthor({ name: enforcementEmbedAuthor("reminder", categoryLabel, clan.clanName), iconURL: discordUrl || undefined })
     .setThumbnail(robloxUrl || discordUrl || null)
-    .setDescription(
-      `${body}\n\nThe ${periodAdjective(clan)} period resets ${deadline}. Just a friendly nudge — not a warning.`
-    )
+    .setDescription(body)
     .setTimestamp();
+  if (clan.clanLogoUrl) embed.setImage(clan.clanLogoUrl);
+  return embed;
 }
 
 /**
@@ -162,8 +162,9 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       const channel = await client.channels.fetch(clan.reminderChannelId);
       if (channel?.isTextBased() && "send" in channel) {
         const mention = clan.pingReminders ? `<@${target.id}>` : `**${target.username}**`;
+        const noun = categoryEnforcementNoun(input.categoryLabel ?? activityWord(clan));
         await channel.send({
-          content: `🔔 ${mention} — this is your activity reminder.`,
+          content: `🔔 ${mention} — just a reminder. Please do your ${noun}.`,
           ...(card ? { files: [reminderAttachment(card)] } : { embeds: [embed] }),
           allowedMentions: clan.pingReminders ? { users: [target.id] } : { parse: [] },
         });
@@ -352,6 +353,29 @@ export async function listRecentReminders(
     .where(and(eq(remindersTable.guildId, guildId), eq(remindersTable.userId, userId)))
     .orderBy(desc(remindersTable.createdAt))
     .limit(limit);
+}
+
+/** Who has been reminded the most, from every saved reminder row. */
+export async function rankByReminders(
+  guildId: string,
+  limit = 10
+): Promise<{ userId: string; username: string; count: number }[]> {
+  const rows = await db
+    .select({
+      userId: remindersTable.userId,
+      username: sql<string>`max(${remindersTable.username})`,
+      count: sql<number>`count(*)::int`.mapWith(Number),
+    })
+    .from(remindersTable)
+    .where(eq(remindersTable.guildId, guildId))
+    .groupBy(remindersTable.userId)
+    .orderBy(desc(sql`count(*)`))
+    .limit(limit);
+  return rows.map((r) => ({
+    userId: r.userId,
+    username: r.username || "member",
+    count: Number(r.count) || 0,
+  }));
 }
 
 /** How many reminders this user already received this tracking period. */

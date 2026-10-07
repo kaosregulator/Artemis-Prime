@@ -287,6 +287,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .setRequired(false)
         .addChoices({ name: "⚠️ Warning", value: "warning" }, { name: "🔔 Reminder", value: "reminder" })
     )
+    .addAttachmentOption((o) =>
+      o
+        .setName("logo")
+        .setDescription("Optional in-game clan logo — saved and shown on warning & reminder cards")
+        .setRequired(false)
+    )
     .toJSON(),
   new SlashCommandBuilder()
     .setName("activity")
@@ -349,8 +355,26 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .toJSON(),
 
   new SlashCommandBuilder()
+    .setName("warnboard")
+    .setDescription("Who has the most warnings and reminders (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("clanlogo")
+    .setDescription("Attach the in-game clan logo used on warning and reminder cards")
+    .setDMPermission(false)
+    .addAttachmentOption((o) =>
+      o
+        .setName("image")
+        .setDescription("Clan logo image from your device")
+        .setRequired(true)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("Private standing / Command Center — history, clean points, avatars")
+    .setDescription("Your warning card, or the officer board of who needs a look")
     .addUserOption((o) => o.setName("user").setDescription("Whose standing to view").setRequired(false))
     .addStringOption((o) =>
       o

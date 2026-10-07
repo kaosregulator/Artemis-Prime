@@ -10,6 +10,7 @@ import { recordWeeklyWarning, isRequirementSatisfied, listTracked } from "./prog
 import {
   memberWarningBody,
   memberWarningDmContent,
+  activityWord,
   sanitizeMemberReason,
   periodLabel,
   periodAdjective,
@@ -136,6 +137,8 @@ async function renderWarningCardSafe(
       warningNumber,
       disputeCommand: DISPUTE_COMMAND,
       categoryLabel: categoryLabel ?? null,
+      activityName: activityWord(clan),
+      clanLogoUrl: clan.clanLogoUrl ?? null,
       // Intentionally omit count/threshold — those are staff-only.
     });
   } catch (err) {
@@ -161,7 +164,8 @@ function memberWarningEmbed(
   memberReason: string,
   warningNumber: number | null,
   faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null },
-  categoryLabel?: string | null
+  categoryLabel?: string | null,
+  clanLogoUrl?: string | null
 ): EmbedBuilder {
   const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
   const robloxUrl = faces?.robloxAvatarUrl || null;
@@ -174,6 +178,7 @@ function memberWarningEmbed(
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(memberWarningBody(memberReason, warningNumber, categoryLabel))
     .setTimestamp();
+  if (clanLogoUrl) embed.setImage(clanLogoUrl);
   if (warningNumber) embed.setFooter({ text: `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}` });
   return embed;
 }
@@ -278,13 +283,14 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           memberFacingReason,
           warningNumber,
           faces,
-          categoryLabel
+          categoryLabel,
+          clan.clanLogoUrl
         );
         await channel.send({
           content:
-            `⚠️ <@${target.id}> — you received a ${noun} Warning` +
+            `⚠️ <@${target.id}> — you missed your ${noun}. This is a warning` +
             `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
-            `Dispute with \`${DISPUTE_COMMAND}\` — have your proof ready.`,
+            `If this is wrong, run \`${DISPUTE_COMMAND}\`.`,
           ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
           allowedMentions: { users: [target.id] },
         });
@@ -302,7 +308,8 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       memberFacingReason,
       warningNumber,
       faces,
-      categoryLabel
+      categoryLabel,
+      clan.clanLogoUrl
     );
     dmSent = await target
       .send(
@@ -546,8 +553,9 @@ export async function postWarningAnnouncement(opts: {
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
       .setAuthor({ name: `⚠️ WARNING • ${clan.clanName}` })
-      .setDescription(memberWarningBody(opts.reason))
+      .setDescription(memberWarningBody(opts.reason, null, clan.activityName))
       .setTimestamp();
+    if (clan.clanLogoUrl) embed.setImage(clan.clanLogoUrl);
     await channel.send({
       content: `⚠️ <@&${opts.roleId}>`,
       embeds: [embed],
@@ -572,6 +580,40 @@ export async function countActive(guildId: string, userId: string): Promise<numb
       )
     );
   return row?.count ?? 0;
+}
+
+export interface EnforcementRankRow {
+  userId: string;
+  username: string;
+  /** Lifetime rows (warnings include removed ones). */
+  count: number;
+  /** Still-active warnings. Reminders leave this equal to count. */
+  active: number;
+}
+
+/**
+ * Who has the most saved warnings. Lifetime count includes removed rows so
+ * past warnings still rank. `active` is the subset that has not been cleared.
+ */
+export async function rankByWarnings(guildId: string, limit = 10): Promise<EnforcementRankRow[]> {
+  const rows = await db
+    .select({
+      userId: warningsTable.userId,
+      username: sql<string>`max(${warningsTable.username})`,
+      count: sql<number>`count(*)::int`.mapWith(Number),
+      active: sql<number>`sum(case when ${warningsTable.removedAt} is null then 1 else 0 end)::int`.mapWith(Number),
+    })
+    .from(warningsTable)
+    .where(eq(warningsTable.guildId, guildId))
+    .groupBy(warningsTable.userId)
+    .orderBy(desc(sql`count(*)`))
+    .limit(limit);
+  return rows.map((r) => ({
+    userId: r.userId,
+    username: r.username || "member",
+    count: Number(r.count) || 0,
+    active: Number(r.active) || 0,
+  }));
 }
 
 /** Lifetime warnings (active + removed) — the history officers review. */

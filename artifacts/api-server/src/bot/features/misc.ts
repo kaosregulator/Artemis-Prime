@@ -46,8 +46,10 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         accent: "#3f51e0",
         lines: [
           `/panel  —  live staff board (survives restarts)`,
-          `/warnings  —  Command Center member editor (no target)`,
-          `/warnings member:…  —  standing card with lifetime history`,
+          `/warnings  —  Command Center (tap Most warned & reminded)`,
+          `/warnboard  —  who has the most warnings and reminders`,
+          `/clanlogo  —  attach the in-game clan logo for those cards`,
+          `/warnings member:…  —  one member's warning history`,
           `/viewlink @user  —  private player dashboard (warnings + activity)`,
           `/link  —  assign Roblox avatars (shows Discord nick + username; role walkthrough)`,
         ],

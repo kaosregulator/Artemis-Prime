@@ -37,6 +37,7 @@ import {
   activityMissedReason,
 } from "../services/tracking";
 import { statusOf, STATUS_LABEL } from "../services/progress";
+import { storeClanLogo } from "./clanLogo";
 import { discordRelative } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 import {
@@ -240,7 +241,7 @@ async function buildPanel(
   const modeNote =
     state.mode === "warning"
       ? "admin-only · recorded with a dispute ticket #"
-      : "friendly nudge · never a warning";
+      : "simple reminder for this activity";
   const noteLine = state.note ? `\n📝 **Note:** ${state.note.slice(0, 150)}` : "";
 
   const select = new UserSelectMenuBuilder()
@@ -343,6 +344,19 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
     return;
   }
 
+  const logo = interaction.options.getAttachment("logo");
+  let activeClan = clan;
+  let logoNote = "";
+  if (logo) {
+    const saved = await storeClanLogo(interaction.client, clan, logo, interaction.channelId);
+    if (!saved.ok) {
+      await interaction.editReply({ content: saved.error });
+      return;
+    }
+    activeClan = saved.clan;
+    logoNote = `${saved.note}\n\n`;
+  }
+
   const requested = (interaction.options.getString("mode") ?? "warning").toLowerCase();
   const mode: Mode = requested === "reminder" ? "reminder" : "warning";
 
@@ -359,8 +373,8 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
     forceUserIds: [],
   };
 
-  const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
-  await interaction.editReply(panel);
+  const panel = await buildPanel(interaction.client, interaction.guild, activeClan, state);
+  await interaction.editReply({ ...panel, content: `${logoNote}${panel.content}` });
   const message = await interaction.fetchReply();
   panels.set(message.id, state);
 }
