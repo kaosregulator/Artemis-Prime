@@ -174,15 +174,9 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
   ctx.globalAlpha = 1;
 
   if (count === 0) {
-    drawCenter(ctx, "No one selected yet", W / 2, H / 2 + 10, 40, UI.soft, true, "display");
-    drawCenter(
-      ctx,
-      "Use the member picker to choose one or many clan members.",
-      W / 2,
-      H / 2 + 56,
-      24,
-      UI.muted
-    );
+    drawCenter(ctx, "1  Pick people", W / 2, H / 2 - 20, 36, UI.text, true, "display");
+    drawCenter(ctx, "2  Check this preview", W / 2, H / 2 + 28, 28, UI.soft, false, "body");
+    drawCenter(ctx, "3  Send", W / 2, H / 2 + 70, 28, accent, true, "display");
     footer(ctx, v.communityName, accent);
     return toPng(rc.canvas);
   }

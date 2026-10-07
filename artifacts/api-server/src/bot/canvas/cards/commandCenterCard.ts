@@ -2,12 +2,14 @@ import {
   createSurface,
   paintBackground,
   card,
+  roundRectPath,
   text,
   progressBar,
   horizontalGradient,
   PALETTE,
   toPng,
 } from "../theme";
+import { accentRail } from "../hubFrame";
 
 export type Tone = "good" | "warn" | "bad" | "neutral";
 
@@ -27,6 +29,19 @@ export interface CommandCenterCardView {
   needsActionLabel: string; // "7 attention · 3 missed · 4 warnings" or "All clear"
   tiles: CommandCenterTile[]; // exactly 8 for the 2×4 grid
   footer: string;
+}
+
+function toneBar(tone: Tone): string {
+  switch (tone) {
+    case "good":
+      return PALETTE.greenBright;
+    case "warn":
+      return PALETTE.amber;
+    case "bad":
+      return PALETTE.red;
+    default:
+      return PALETTE.border;
+  }
 }
 
 function toneColor(tone: Tone, value: number): string {
@@ -53,6 +68,7 @@ export async function renderCommandCenter(v: CommandCenterCardView): Promise<Buf
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
+  accentRail(ctx, H, PALETTE.blurple);
   const pad = 40;
 
   text(ctx, v.communityName.toUpperCase(), pad, 54, {
@@ -106,6 +122,12 @@ export async function renderCommandCenter(v: CommandCenterCardView): Promise<Buf
     const x = pad + col * (tileW + gap);
     const y = gridY + rowIdx * (tileH + gap);
     card(ctx, x, y, tileW, tileH, { fill: PALETTE.bg1, stroke: PALETTE.borderSoft, shadow: false });
+    ctx.save();
+    roundRectPath(ctx, x, y, tileW, tileH, 22);
+    ctx.clip();
+    ctx.fillStyle = toneBar(t.tone);
+    ctx.fillRect(x, y, 5, tileH);
+    ctx.restore();
     text(ctx, t.label.toUpperCase(), x + 16, y + 28, { size: 12, weight: "bold", color: PALETTE.muted, maxWidth: tileW - 32 });
     text(ctx, `${t.value}`, x + 16, y + 74, { size: 34, weight: "bold", family: "mono", color: toneColor(t.tone, t.value) });
   });

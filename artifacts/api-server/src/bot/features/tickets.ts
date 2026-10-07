@@ -60,11 +60,12 @@ export async function buildTicketList(clan: Clan): Promise<BaseMessageOptions> {
   const open = await listTickets(clan.guildId, "open", 25);
   const embed = new EmbedBuilder()
     .setColor(open.length ? 0xfaa61a : 0x3ba55d)
-    .setTitle(`🎫 Tickets — ${clan.clanName}`)
-    .setDescription(
-      open.length
-        ? `**${open.length}** open:\n\n${open.map(ticketLine).join("\n")}`
-        : "✨ No open tickets."
+    .setTitle(`Tickets — ${clan.clanName}`)
+    .setDescription(open.length ? `**${open.length} open**\n${open.map(ticketLine).join("\n")}` : "No open tickets.")
+    .addFields(
+      { name: "1  Assign", value: "Pick a ticket, then assign it.", inline: true },
+      { name: "2  In progress", value: "Mark it once you start.", inline: true },
+      { name: "3  Finish", value: "Resolve or close. Closing keeps the record.", inline: true }
     );
 
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];

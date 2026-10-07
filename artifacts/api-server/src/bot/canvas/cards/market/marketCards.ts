@@ -14,6 +14,7 @@ import {
   toPng,
   RBX,
 } from "../roblox/shared";
+import { accentRail, hubHeader, numberedTile } from "../../hubFrame";
 
 const MKT = {
   accent: "#e11d48",
@@ -35,39 +36,31 @@ export interface MarketHomeCardView {
 
 export async function renderMarketHomeCard(view: MarketHomeCardView = {}): Promise<Buffer> {
   const W = 960;
-  const H = 540;
+  const H = 420;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
-  brand(ctx);
-  text(ctx, "Avatar Marketplace", 40, 92, {
-    size: 40,
-    weight: "bold",
-    color: RBX.ink,
+  accentRail(ctx, H, MKT.accent);
+  const bodyY = hubHeader(ctx, {
+    eyebrow: "Marketplace",
+    title: "Browse the avatar shop",
+    subtitle: view.subtitle ?? "Pick a shelf. The menus under this card open it.",
+    width: W,
+    accent: MKT.accentDeep,
+    pad: 40,
   });
-  text(
-    ctx,
-    view.subtitle ??
-      "Clothing, accessories, bodies & limiteds — browse with the menus below.",
-    40,
-    145,
-    { size: 18, color: RBX.soft, maxWidth: W - 80 }
-  );
 
   const tiles = [
-    ["CLOTHING", "Shirts · pants", "Layered clothing"],
-    ["ACCESSORIES", "Hats · hair", "Gear & more"],
-    ["BODIES", "Bundles", "Heads & packages"],
-    ["COLLECTIBLES", "Limiteds", "Resale items"],
+    ["Wear", "Clothing", "Shirts, pants, layered"],
+    ["Add", "Accessories", "Hats, hair, gear"],
+    ["Build", "Bodies", "Bundles and heads"],
+    ["Collect", "Limiteds", "Resale items"],
   ] as const;
   let x = 40;
-  for (const [title, line1, line2] of tiles) {
-    card(ctx, x, 220, 210, 180, { radius: 18, shadow: false });
-    text(ctx, title, x + 20, 270, { size: 15, weight: "bold", color: MKT.accentDeep });
-    text(ctx, line1, x + 20, 320, { size: 20, weight: "bold", color: RBX.ink, maxWidth: 170 });
-    text(ctx, line2, x + 20, 352, { size: 18, color: RBX.soft, maxWidth: 170 });
-    x += 225;
-  }
+  tiles.forEach(([kicker, title, detail], i) => {
+    numberedTile(ctx, x, bodyY, 215, 156, i + 1, kicker, title, detail, MKT.accentDeep);
+    x += 230;
+  });
 
   footerNote(ctx, W, H, "Player Marketplace only · Not Creator Store · Public catalog");
   return toPng(rc.canvas);

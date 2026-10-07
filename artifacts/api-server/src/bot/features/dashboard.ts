@@ -299,7 +299,7 @@ export async function buildOverviewPayload(
       { label: "On leave", value: members.filter((m) => m.onLeave).length, tone: "neutral" },
       { label: "Tracked", value: members.length, tone: "neutral" },
     ],
-    footer: "Clan role only · reminders and warnings are messages · Most warned is a plain list",
+    footer: "1 Check counts   2 Open a queue   3 Message with /xpwarn",
   });
 
   return {

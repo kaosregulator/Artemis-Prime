@@ -361,7 +361,7 @@ export async function handleHubButton(interaction: ButtonInteraction) {
       const member = await getMember(clan.guildId, userId);
       if (!member) {
         await interaction.editReply({
-          content: "No tracked XP yet — nothing to show on the calendar.",
+          content: "Nothing on the calendar yet. Activity shows up once this member is tracked.",
         });
         return;
       }

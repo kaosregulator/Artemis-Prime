@@ -1,10 +1,11 @@
 import {
-  EmbedBuilder,
+  AttachmentBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { getClan, isOfficer } from "../services/config";
 import { removeWarning } from "../services/warnings";
+import { renderOffThread } from "../canvas/render-pool";
 
 /**
  * /help and the warning-removal select handler. The `/warnings` command itself
@@ -24,54 +25,42 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   const game = clan?.gameName || "your game";
   const officer = isOfficer(interaction.member, clan ?? null);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x3f51e0)
-    .setTitle(`${clan?.clanName ?? "Clan"} — how this works`)
-    .setDescription(
-      [
-        "This is a community desk for your clan. It is not an in-game score tracker.",
-        "",
-        `**${activity}** is just the name of the thing people do in ${game}. Officers send a reminder or a warning when someone missed it. The bot does not score that game number.`,
-        "",
-        "**Clan points** are awards staff give for side stuff a member does. They are separate from warnings.",
-        "",
-        "Only people with the **clan role** you set are included. Channels, that role, and the warning card are yours to configure in **/setup** — nothing is locked to one server.",
-      ].join("\n")
-    )
-    .addFields({
-      name: "Members",
-      value: [
-        "`/warnings` — your own warnings",
-        "`/dispute` — contest a warning",
-        "`/leaderboard` — clan points and clean record",
-        "`/roblox` `/scout` `/market` — Roblox tools",
-      ].join("\n"),
-    });
+  const sections = [
+    {
+      title: "Members",
+      accent: "#2e9e57",
+      lines: ["Check yourself", "Open /warnings. A wrong warning goes through /dispute."],
+    },
+    {
+      title: "Messages",
+      accent: "#c9820a",
+      lines: officer
+        ? ["Remind or warn", "/xpwarn sends the message. /warnboard ranks who has the most."]
+        : ["Officers message you", "A reminder is a nudge. A warning means the activity was missed."],
+    },
+    {
+      title: "Awards",
+      accent: "#3f51e0",
+      lines: ["Clan points", "/leaderboard is that award. It is separate from warnings."],
+    },
+    {
+      title: officer ? "Setup" : "Tools",
+      accent: "#0e9cbb",
+      lines: officer
+        ? ["Your server", "/setup sets the role, channels, and warning image. /link reads the Bloxlink nick."]
+        : ["Roblox tools", "/roblox, /scout, and /market. Officers use /link."],
+    },
+  ];
 
-  if (officer) {
-    embed.addFields(
-      {
-        name: "Messages",
-        value: [
-          "`/xpwarn` — remind or warn the people you pick",
-          "`/warnboard` — who has the most, 10 per page",
-          "`/warnings` — staff desk, then **Most warned & reminded**",
-          "`/clanlogo` — image on those warning and reminder cards",
-        ].join("\n"),
-      },
-      {
-        name: "Linking",
-        value:
-          "`/link` walks the clan role. It shows the Discord nickname and username. If the server uses Bloxlink, that nick is already the Roblox name, so matching is faster. Other people in the server are not included.",
-      },
-      {
-        name: "Setup",
-        value: "`/setup` — activity name, clan role, channels, warning card. `/panel` posts the live staff desk.",
-      }
-    );
-  }
-
-  await interaction.editReply({ embeds: [embed] });
+  const png = await renderOffThread("helpCard", {
+    communityName: clan?.clanName ?? "Clan",
+    activityName: activity,
+    gameName: game,
+    sections,
+  });
+  await interaction.editReply({
+    files: [new AttachmentBuilder(png, { name: "help.png" })],
+  });
 }
 
 /** Handle removal selection from /warnings. */

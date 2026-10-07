@@ -255,7 +255,8 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     .setColor(needsAction ? parseInt(PALETTE.amber.slice(1), 16) : parseInt(PALETTE.green.slice(1), 16))
     .setImage("attachment://command-center.png")
     .setDescription(
-      `**🧾 Recent activity** · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
+      `**1** Check who needs a look. **2** Open a button. **3** Message them with **/xpwarn**.\n` +
+      `Recent activity · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
         (s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._")
     )
     .setFooter({ text: "Live dashboard · refreshes automatically when data changes" })

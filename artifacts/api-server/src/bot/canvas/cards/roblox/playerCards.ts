@@ -12,6 +12,7 @@ import {
   toPng,
   RBX,
 } from "./shared";
+import { accentRail, hubHeader, numberedTile } from "../../hubFrame";
 
 export interface RobloxHomeCardView {
   title?: string;
@@ -20,50 +21,32 @@ export interface RobloxHomeCardView {
 
 export async function renderRobloxHomeCard(view: RobloxHomeCardView = {}): Promise<Buffer> {
   const W = 960;
-  const H = 560;
+  const H = 520;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
+  accentRail(ctx, H, RBX.blue);
 
-  text(ctx, "ROBLOX HUB", 48, 48, { size: 16, weight: "bold", color: RBX.blueDeep });
-  text(ctx, view.title ?? "Players · Avatars · Games", 48, 100, {
-    size: 38,
-    weight: "bold",
-    color: RBX.ink,
-    maxWidth: W - 96,
+  const bodyY = hubHeader(ctx, {
+    eyebrow: "Roblox hub",
+    title: view.title ?? "Look someone up",
+    subtitle: view.hint ?? "Pick a path. The buttons under this card open it. /roblox name jumps straight in.",
+    width: W,
+    accent: RBX.blueDeep,
   });
-  text(
-    ctx,
-    view.hint ?? "One hub — tap a path below. Optional: /roblox username to jump straight in.",
-    48,
-    148,
-    { size: 18, color: RBX.soft, maxWidth: W - 96 }
-  );
 
   const tiles: Array<[string, string, string]> = [
-    ["FIND PLAYER", "Profiles, presence,", "avatar & groups"],
-    ["MILITARY TYCOON", "Game, servers,", "passes & ranks"],
-    ["PUBLIC DATA", "No cookies · No", "private game stats"],
+    ["Find", "A player", "Profile, avatar, and groups"],
+    ["Open", "Military Tycoon", "Game, servers, and ranks"],
+    ["Public", "Data only", "No cookies and no private stats"],
   ];
   let x = 48;
-  for (const [title, line1, line2] of tiles) {
-    card(ctx, x, 210, 280, 220, { radius: 20, shadow: false });
-    ctx.beginPath();
-    ctx.arc(x + 36, 250, 8, 0, Math.PI * 2);
-    ctx.fillStyle = RBX.blue;
-    ctx.fill();
-    text(ctx, title, x + 56, 256, {
-      size: 15,
-      weight: "bold",
-      color: RBX.blueDeep,
-      maxWidth: 200,
-    });
-    text(ctx, line1, x + 28, 310, { size: 22, weight: "bold", color: RBX.ink, maxWidth: 224 });
-    text(ctx, line2, x + 28, 348, { size: 22, weight: "bold", color: RBX.ink, maxWidth: 224 });
+  tiles.forEach(([kicker, title, detail], i) => {
+    numberedTile(ctx, x, bodyY, 280, 220, i + 1, kicker, title, detail, RBX.blueDeep);
     x += 300;
-  }
+  });
 
-  footerNote(ctx, W, H, "Public Roblox APIs only · Use the buttons under this card");
+  footerNote(ctx, W, H, "Use the buttons under this card");
   return toPng(rc.canvas);
 }
 
