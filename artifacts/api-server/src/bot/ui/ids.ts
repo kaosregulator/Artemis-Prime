@@ -54,8 +54,9 @@ export const REVIEW_RESET_CONFIRM = id(NS.review, "resetConfirm");
 export const DASH_REFRESH = id(NS.dash, "refresh");
 export const DASH_FILTER = id(NS.dash, "filter");
 export const DASH_HOME = id(NS.dash, "home");
-/** Open the most-warned / most-reminded board. */
+/** Open the most-warned / most-reminded list. Arg is the page number. */
 export const DASH_BOARD = id(NS.dash, "board");
+export const dashBoardPage = (page: number) => id(NS.dash, "board", Math.max(0, page));
 /** Open member browser at queue index (arg = `${filter}-${index}`). */
 export const dashBrowse = (filter: string, index: number) =>
   id(NS.dash, "browse", `${filter}-${index}`);

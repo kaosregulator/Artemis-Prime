@@ -299,7 +299,7 @@ export async function buildOverviewPayload(
       { label: "On leave", value: members.filter((m) => m.onLeave).length, tone: "neutral" },
       { label: "Tracked", value: members.length, tone: "neutral" },
     ],
-    footer: "Tap a queue below · one clean member profile at a time · no @mention lists",
+    footer: "Clan role only · reminders and warnings are messages · Most warned is a plain list",
   });
 
   return {
@@ -498,8 +498,9 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   const guild = interaction.guild;
 
   if (action === "board") {
+    const page = Math.max(0, parseInt(arg ?? "0", 10) || 0);
     await interaction.editReply({
-      ...(await buildWarnBoardPayload(clan)),
+      ...(await buildWarnBoardPayload(clan, page)),
       attachments: [],
     });
     return;

@@ -356,7 +356,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnboard")
-    .setDescription("Who has the most warnings and reminders (officers)")
+    .setDescription("Plain list of who has the most warnings and reminders (10 per page)")
     .setDMPermission(false)
     .toJSON(),
 

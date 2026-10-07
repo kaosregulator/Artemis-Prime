@@ -1,12 +1,10 @@
 import {
   EmbedBuilder,
-  AttachmentBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { getClan, isOfficer } from "../services/config";
 import { removeWarning } from "../services/warnings";
-import { renderOffThread } from "../canvas/render-pool";
 
 /**
  * /help and the warning-removal select handler. The `/warnings` command itself
@@ -22,68 +20,58 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   }
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
-  const activity = clan?.activityName || "XP";
+  const activity = clan?.activityName || "activity";
+  const game = clan?.gameName || "your game";
   const officer = isOfficer(interaction.member, clan ?? null);
 
-  const sections = [
-      {
-        title: "For members",
-        accent: "#2e9e57",
-        lines: [
-          `Officers verify ${activity} in-game — you never submit it`,
-          `/warnings  —  your private standing card (history, clean points, avatars)`,
-          `/leaderboard  —  activity standing (top 3 podium + roster)`,
-          `/calendar  —  your ${activity} month calendar`,
-          `/dispute  —  contest a warning (or use the button on /warnings)`,
-          `/roblox · /scout · /market  —  Roblox hubs (menus & buttons inside)`,
-        ],
-      },
-    ];
+  const embed = new EmbedBuilder()
+    .setColor(0x3f51e0)
+    .setTitle(`${clan?.clanName ?? "Clan"} — how this works`)
+    .setDescription(
+      [
+        "This is a community desk for your clan. It is not an in-game score tracker.",
+        "",
+        `**${activity}** is just the name of the thing people do in ${game}. Officers send a reminder or a warning when someone missed it. The bot does not score that game number.`,
+        "",
+        "**Clan points** are awards staff give for side stuff a member does. They are separate from warnings.",
+        "",
+        "Only people with the **clan role** you set are included. Channels, that role, and the warning card are yours to configure in **/setup** — nothing is locked to one server.",
+      ].join("\n")
+    )
+    .addFields({
+      name: "Members",
+      value: [
+        "`/warnings` — your own warnings",
+        "`/dispute` — contest a warning",
+        "`/leaderboard` — clan points and clean record",
+        "`/roblox` `/scout` `/market` — Roblox tools",
+      ].join("\n"),
+    });
+
   if (officer) {
-    sections.push(
+    embed.addFields(
       {
-        title: "Command center",
-        accent: "#3f51e0",
-        lines: [
-          `/panel  —  live staff board (survives restarts)`,
-          `/warnings  —  Command Center (tap Most warned & reminded)`,
-          `/warnboard  —  who has the most warnings and reminders`,
-          `/clanlogo  —  attach the in-game clan logo for those cards`,
-          `/warnings member:…  —  one member's warning history`,
-          `/viewlink @user  —  private player dashboard (warnings + activity)`,
-          `/link  —  assign Roblox avatars (shows Discord nick + username; role walkthrough)`,
-        ],
+        name: "Messages",
+        value: [
+          "`/xpwarn` — remind or warn the people you pick",
+          "`/warnboard` — who has the most, 10 per page",
+          "`/warnings` — staff desk, then **Most warned & reminded**",
+          "`/clanlogo` — image on those warning and reminder cards",
+        ].join("\n"),
       },
       {
-        title: "Logging & enforcement",
-        accent: "#c9820a",
-        lines: [
-          `/entry @user <amount>  —  log ${activity}`,
-          `/xp set | add | remove | complete | review`,
-          `/xpwarn  —  warn or remind many members with a live preview`,
-          `/missing  —  who hasn't hit today's target`,
-        ],
+        name: "Linking",
+        value:
+          "`/link` walks the clan role. It shows the Discord nickname and username. If the server uses Bloxlink, that nick is already the Roblox name, so matching is faster. Other people in the server are not included.",
       },
       {
-        title: "Tickets & setup",
-        accent: "#0e9cbb",
-        lines: [
-          `/disputes · /notifications · /tickets  —  also on /panel`,
-          `/setup  —  goals, channels, roles, enforcement`,
-          `/leaderboard  —  activity standing & clean record`,
-        ],
+        name: "Setup",
+        value: "`/setup` — activity name, clan role, channels, warning card. `/panel` posts the live staff desk.",
       }
     );
   }
 
-  const png = await renderOffThread("helpCard", {
-    communityName: clan?.clanName ?? "Artemis Prime",
-    activityName: activity,
-    sections,
-  });
-  await interaction.editReply({
-    files: [new AttachmentBuilder(png, { name: "help.png" })],
-  });
+  await interaction.editReply({ embeds: [embed] });
 }
 
 /** Handle removal selection from /warnings. */

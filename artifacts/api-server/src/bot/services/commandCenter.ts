@@ -236,7 +236,7 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     completionPct: pct,
     completed: s.snap.completed,
     active: s.snap.active,
-    needsActionLabel: needsAction ? `Needs action: ${needsActionParts.join(" · ")}` : "All clear — everyone is on pace",
+    needsActionLabel: needsAction ? `Needs a look: ${needsActionParts.join(" · ")}` : "All clear — nothing needs a message",
     tiles: [
       { label: "Complete", value: s.snap.completed, tone: "good" },
       { label: "Attention", value: s.attention, tone: "warn" },

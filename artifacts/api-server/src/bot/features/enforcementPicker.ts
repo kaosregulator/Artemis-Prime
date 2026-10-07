@@ -339,7 +339,7 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
   }
   if (!isOfficer(interaction.member, clan)) {
     await interaction.editReply({
-      content: "Only officers can send XP reminders and warnings.",
+      content: "Only officers can send reminders and warnings.",
     });
     return;
   }

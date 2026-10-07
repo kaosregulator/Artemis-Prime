@@ -61,7 +61,7 @@ export async function renderCommandCenter(v: CommandCenterCardView): Promise<Buf
     color: PALETTE.soft,
     maxWidth: W - pad * 2,
   });
-  text(ctx, "XP Command Center", pad, 92, { size: 38, weight: "bold", color: PALETTE.text });
+  text(ctx, "Clan desk", pad, 92, { size: 38, weight: "bold", color: PALETTE.text });
   text(ctx, `${v.weekRange} • ${v.deadline}`, pad, 118, {
     size: 16,
     color: PALETTE.muted,
@@ -74,7 +74,7 @@ export async function renderCommandCenter(v: CommandCenterCardView): Promise<Buf
   card(ctx, pad, topY, W - pad * 2, topH, { fill: PALETTE.card });
   const pct = Math.max(0, Math.min(100, Math.round(v.completionPct)));
   const accent = pct >= 100 ? PALETTE.greenBright : pct >= 50 ? PALETTE.amber : PALETTE.red;
-  text(ctx, "WEEK COMPLETION", pad + 28, topY + 40, { size: 15, weight: "bold", color: PALETTE.muted });
+  text(ctx, "DONE THIS PERIOD", pad + 28, topY + 40, { size: 15, weight: "bold", color: PALETTE.muted });
   text(ctx, `${pct}%`, pad + 28, topY + 102, { size: 58, weight: "bold", family: "mono", color: accent });
   ctx.font = `58px "JetBrains Mono", "DejaVu Sans"`;
   const bw = ctx.measureText(`${pct}%`).width;

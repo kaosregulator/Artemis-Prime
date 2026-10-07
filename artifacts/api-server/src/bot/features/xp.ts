@@ -54,7 +54,7 @@ export function notConfiguredMessage(officer: boolean): { content: string } {
   return {
     content: officer
       ? "This server isn't configured yet — run **/setup** to choose a weekly goal, tracking mode and roles."
-      : "XP tracking isn't configured on this server yet. Ask an admin to run **/setup**.",
+      : "This server isn't configured yet. Ask an officer to run **/setup**.",
   };
 }
 
