@@ -44,6 +44,7 @@ import {
   DASH_REFRESH,
   DASH_FILTER,
   DASH_HOME,
+  DASH_BOARD,
   dashBrowse,
   dashPrev,
   dashNext,
@@ -54,6 +55,7 @@ import {
   mpWarn,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
+import { buildWarnBoardPayload } from "./warnBoard";
 import {
   buildPlayerProfile,
   memberHasCombatSupportRole,
@@ -157,6 +159,12 @@ function overviewComponents(counts: {
         .setStyle(ButtonStyle.Secondary)
         .setLabel("Reminded"),
       new ButtonBuilder().setCustomId(DASH_REFRESH).setStyle(ButtonStyle.Secondary).setLabel("Refresh")
+    ),
+    row(
+      new ButtonBuilder()
+        .setCustomId(DASH_BOARD)
+        .setStyle(ButtonStyle.Danger)
+        .setLabel("Most warned & reminded")
     ),
   ];
 }
@@ -291,7 +299,7 @@ export async function buildOverviewPayload(
       { label: "On leave", value: members.filter((m) => m.onLeave).length, tone: "neutral" },
       { label: "Tracked", value: members.length, tone: "neutral" },
     ],
-    footer: "Tap a queue below · one clean member profile at a time · no @mention lists",
+    footer: "1 Check counts   2 Open a queue   3 Message with /xpwarn",
   });
 
   return {
@@ -488,6 +496,15 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   if (!clan) return;
   const { action, arg } = parseId(interaction.customId);
   const guild = interaction.guild;
+
+  if (action === "board") {
+    const page = Math.max(0, parseInt(arg ?? "0", 10) || 0);
+    await interaction.editReply({
+      ...(await buildWarnBoardPayload(clan, page)),
+      attachments: [],
+    });
+    return;
+  }
 
   if (action === "refresh" || action === "home") {
     await interaction.editReply({

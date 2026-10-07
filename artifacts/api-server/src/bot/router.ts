@@ -83,6 +83,8 @@ import {
   handleLinkModal,
 } from "./features/linkHub";
 import { handleWarnings, handleHubButton, handleHubModal, handleWarningsAutocomplete } from "./features/userHub";
+import { handleWarnBoard } from "./features/warnBoard";
+import { handleClanLogo } from "./features/clanLogo";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -106,6 +108,10 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await openActivityLog(interaction));
         case "warnings":
           return void (await handleWarnings(interaction));
+        case "warnboard":
+          return void (await handleWarnBoard(interaction));
+        case "clanlogo":
+          return void (await handleClanLogo(interaction));
         case "leaderboard":
           return void (await handleLeaderboard(interaction));
         case "viewlink":

@@ -5,6 +5,7 @@ import {
   roundRectPath,
   fetchAvatar,
   drawAvatar,
+  drawCover,
   toPng,
 } from "../theme";
 import { font, sanitizeText } from "../fonts";
@@ -33,6 +34,10 @@ export interface EnforcementCardView {
   periodLabel?: string;
   /** Activity category shown first in the big title (e.g. "Combat Support"). */
   categoryLabel?: string | null;
+  /** Server's configured activity name, used in the footer instead of a hard-coded "XP". */
+  activityName?: string | null;
+  /** In-game clan logo. Painted as a soft background and a crisp mark in the header. */
+  clanLogoUrl?: string | null;
 }
 
 export interface WarningCardView extends EnforcementCardView {
@@ -140,16 +145,23 @@ function drawCenter(
   ctx.textAlign = "left";
 }
 
-/** Small caps footer line with tracked letters and one accent word. */
-function drawFooter(ctx: SKRSContext2D, community: string, accent: string) {
+/** Small caps footer. The accent word is the chosen activity, not a hard-coded "XP". */
+function drawFooter(
+  ctx: SKRSContext2D,
+  community: string,
+  accent: string,
+  activity: string,
+  height: number
+) {
+  const act = sanitizeText(activity || "ACTIVITY").toUpperCase().slice(0, 18) || "ACTIVITY";
   const parts: Seg[] = [
-    { t: "STAY ACTIVE.  EARN ", color: LIGHT.muted },
-    { t: "XP", color: accent, bold: true },
+    { t: "STAY ACTIVE.  DO YOUR ", color: LIGHT.muted },
+    { t: act, color: accent, bold: true },
     { t: ".  KEEP ", color: LIGHT.muted },
     { t: sanitizeText(community).toUpperCase().slice(0, 22), color: LIGHT.ink, bold: true },
     { t: " STRONG.", color: LIGHT.muted },
   ];
-  drawSegLine(ctx, parts, W / 2, H - 46, 20);
+  drawSegLine(ctx, parts, W / 2, height - 46, 20);
 }
 
 /** A rounded pill badge (filled) with centred bold text. */
@@ -303,9 +315,9 @@ export function shieldMark(
 }
 
 /** Faint crest watermarks bleeding in from the left and right edges. */
-function sideWatermarks(ctx: SKRSContext2D, color: string) {
-  shieldMark(ctx, 150, H * 0.5, 210, color, 0.06);
-  shieldMark(ctx, W - 150, H * 0.5, 210, color, 0.06);
+function sideWatermarks(ctx: SKRSContext2D, color: string, height: number) {
+  shieldMark(ctx, 150, height * 0.5, 210, color, 0.06);
+  shieldMark(ctx, W - 150, height * 0.5, 210, color, 0.06);
 }
 
 /** Wrap a custom message into centred dark lines (max 3). */
@@ -344,27 +356,40 @@ async function renderEnforcementCard(opts: {
   icon: "warning" | "bell";
 }): Promise<Buffer> {
   const { v, accent, accentSoft } = opts;
-  const rc = createSurface(W, H);
+  const logo = v.clanLogoUrl ? await fetchAvatar(v.clanLogoUrl) : null;
+  const hasLogo = !!logo;
+  // Extra height so the clan logo can sit up top and the Roblox face can drop
+  // below the message without shrinking.
+  const height = hasLogo ? 1120 : H;
+  const rc = createSurface(W, height);
   const { ctx } = rc;
 
   // Rounded card surface with the brand texture showing through.
   ctx.save();
-  roundRectPath(ctx, 0, 0, W, H, 30);
+  roundRectPath(ctx, 0, 0, W, height, 30);
   ctx.clip();
   paintPhotoSurface(rc);
-  sideWatermarks(ctx, accent);
+  if (logo) {
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    drawCover(ctx, logo, 0, 0, W, height);
+    ctx.restore();
+    ctx.fillStyle = "rgba(244,245,248,0.74)";
+    ctx.fillRect(0, 0, W, height);
+  }
+  sideWatermarks(ctx, accent, height);
   // Accent glows blooming up from the bottom corners.
   for (const gx of [W * 0.12, W * 0.88]) {
-    const g = ctx.createRadialGradient(gx, H + 40, 0, gx, H + 40, H * 0.7);
+    const g = ctx.createRadialGradient(gx, height + 40, 0, gx, height + 40, height * 0.7);
     g.addColorStop(0, opts.icon === "warning" ? "rgba(225,29,43,0.30)" : "rgba(47,107,255,0.20)");
     g.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, W, height);
   }
   ctx.restore();
 
   // Card border.
-  roundRectPath(ctx, 2, 2, W - 4, H - 4, 30);
+  roundRectPath(ctx, 2, 2, W - 4, height - 4, 30);
   ctx.strokeStyle = accent;
   ctx.globalAlpha = 0.9;
   ctx.lineWidth = 3;
@@ -374,12 +399,29 @@ async function renderEnforcementCard(opts: {
   const pad = 48;
   if (opts.badgeLabel) badge(ctx, opts.badgeLabel, W - pad, pad, accent);
 
-  // Header icon + rule.
-  const iconCy = 150;
-  const iconR = 46;
-  headerRule(ctx, iconCy, accent, iconR);
-  if (opts.icon === "warning") warningIcon(ctx, W / 2, iconCy, iconR, accent);
-  else bellIcon(ctx, W / 2, iconCy, iconR, accent);
+  if (logo) {
+    const logoSize = 128;
+    const logoX = W / 2 - logoSize / 2;
+    const logoY = 22;
+    ctx.save();
+    roundRectPath(ctx, logoX, logoY, logoSize, logoSize, 18);
+    ctx.clip();
+    drawCover(ctx, logo, logoX, logoY, logoSize, logoSize);
+    ctx.restore();
+    roundRectPath(ctx, logoX + 1, logoY + 1, logoSize - 2, logoSize - 2, 17);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  // Header icon + rule. Drops under the clan logo when one is set.
+  const iconCy = hasLogo ? 196 : 150;
+  const iconR = hasLogo ? 28 : 46;
+  if (!hasLogo) {
+    headerRule(ctx, iconCy, accent, iconR);
+    if (opts.icon === "warning") warningIcon(ctx, W / 2, iconCy, iconR, accent);
+    else bellIcon(ctx, W / 2, iconCy, iconR, accent);
+  }
 
   // Title — activity category in accent, WARNING/REMINDER in ink. Shrinks to fit.
   const maxTitleW = W - 96;
@@ -396,7 +438,7 @@ async function renderEnforcementCard(opts: {
     totalW = w1 + wSpace + w2;
     if (totalW <= maxTitleW) break;
   }
-  const titleY = 320;
+  const titleY = hasLogo ? 268 : 320;
   const startX = W / 2 - totalW / 2;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -432,17 +474,42 @@ async function renderEnforcementCard(opts: {
   }
 
   // Prominent dispute-ticket pill, sat cleanly between the body and the avatar.
+  const ticketY = hasLogo ? 548 : 556;
   if (opts.ticketLabel) {
-    centeredPill(ctx, opts.ticketLabel, 556, accent);
+    centeredPill(ctx, opts.ticketLabel, ticketY, accent);
   }
 
-  // Avatar + name. When linked, show Discord + Roblox side-by-side (same idea as standing).
-  const avatarY = 604;
+  // Avatar + name. With a clan logo, the Roblox face drops below the Discord
+  // name row and stays large. Without one, both faces stay side by side.
+  const avatarY = hasLogo ? (opts.ticketLabel ? 620 : 560) : 604;
   const discordUrl = v.discordAvatarUrl || (!v.robloxAvatarUrl ? v.avatarUrl : null);
   const robloxUrl = v.robloxAvatarUrl || null;
   const initial = sanitizeText(v.memberName).replace(/^@/, "").slice(0, 1) || "?";
+  const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
 
-  if (robloxUrl && discordUrl) {
+  if (hasLogo && robloxUrl) {
+    const dSize = 84;
+    const rSize = 168;
+    const dImg = discordUrl ? await fetchAvatar(discordUrl) : null;
+    const rImg = await fetchAvatar(robloxUrl);
+    if (discordUrl) {
+      drawAvatar(ctx, dImg, W / 2 - 250, avatarY, dSize, initial, LIGHT.blueSoft);
+      drawCenter(ctx, "Discord", W / 2 - 250 + dSize / 2, avatarY + dSize + 20, 14, LIGHT.muted);
+    }
+    drawCenter(ctx, handle, W / 2 + 40, avatarY + 42, 32, accent, true, "display");
+    const rY = avatarY + 130;
+    drawAvatar(ctx, rImg, W / 2 - rSize / 2, rY, rSize, "R", accentSoft);
+    drawCenter(
+      ctx,
+      v.robloxUsername ? `Roblox · ${v.robloxUsername}` : "Roblox",
+      W / 2,
+      rY + rSize + 28,
+      18,
+      LIGHT.muted,
+      false,
+      "body"
+    );
+  } else if (robloxUrl && discordUrl) {
     const size = 118;
     const gap = 28;
     const pairW = size * 2 + gap;
@@ -462,21 +529,20 @@ async function renderEnforcementCard(opts: {
       false,
       "body"
     );
-    const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
     drawCenter(ctx, handle, W / 2, avatarY + size + 58, 32, accent, true, "display");
   } else {
-    const avatarSize = 150;
+    const avatarSize = hasLogo ? 168 : 150;
     const primaryUrl = robloxUrl || discordUrl || v.avatarUrl;
     const img = await fetchAvatar(primaryUrl);
-    drawAvatar(ctx, img, W / 2 - avatarSize / 2, avatarY, avatarSize, initial, accentSoft);
-    const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
-    drawCenter(ctx, handle, W / 2, avatarY + avatarSize + 44, 34, accent, true, "display");
+    const faceY = hasLogo ? avatarY + 40 : avatarY;
+    drawAvatar(ctx, img, W / 2 - avatarSize / 2, faceY, avatarSize, initial, accentSoft);
+    drawCenter(ctx, handle, W / 2, faceY + avatarSize + 44, 34, accent, true, "display");
     if (v.robloxUsername) {
       drawCenter(
         ctx,
         `Roblox · ${v.robloxUsername}`,
         W / 2,
-        avatarY + avatarSize + 78,
+        faceY + avatarSize + 78,
         18,
         LIGHT.muted,
         false,
@@ -486,7 +552,7 @@ async function renderEnforcementCard(opts: {
   }
 
   // Footer mark + line.
-  const footRuleY = H - 92;
+  const footRuleY = height - 92;
   ctx.strokeStyle = LIGHT.hairline;
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -495,8 +561,9 @@ async function renderEnforcementCard(opts: {
   ctx.moveTo(W / 2 + 30, footRuleY);
   ctx.lineTo(W - pad - 40, footRuleY);
   ctx.stroke();
-  shieldMark(ctx, W / 2, footRuleY, 34, accent, 0.85);
-  drawFooter(ctx, v.communityName, accent);
+  if (!hasLogo) shieldMark(ctx, W / 2, footRuleY, 34, accent, 0.85);
+  const activity = (v.categoryLabel || v.activityName || "activity").trim() || "activity";
+  drawFooter(ctx, v.communityName, accent, activity, height);
 
   return toPng(rc.canvas);
 }
@@ -562,11 +629,11 @@ export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
     icon: "warning",
     ticketLabel,
     bodySegs: [
-      [{ t: `You received a ${noun} Warning.`, color: LIGHT.ink, bold: true }],
+      [{ t: `Hey — you missed your ${noun}. This is a warning.`, color: LIGHT.ink, bold: true }],
       [
-        { t: "Dispute it with ", color: LIGHT.inkSoft },
+        { t: "If this is wrong, run ", color: LIGHT.inkSoft },
         { t: dispute, color: LIGHT.red, bold: true },
-        { t: " — have your proof ready.", color: LIGHT.inkSoft },
+        { t: " and have your proof ready.", color: LIGHT.inkSoft },
       ],
     ],
   });
@@ -577,27 +644,22 @@ export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
  * Period-aware ("daily" / "weekly" from config). No progress fractions.
  */
 export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
-  const period = (v.periodLabel === "daily" || v.periodLabel === "weekly"
-    ? v.periodLabel
-    : "weekly") as string;
-  const noun = (v.categoryLabel || "Activity").trim() || "Activity";
+  const noun = (v.categoryLabel || v.activityName || "activity").trim() || "activity";
   return renderEnforcementCard({
     v,
     accent: LIGHT.blue,
     accentSoft: LIGHT.blueSoft,
     title: [noun.toUpperCase(), "REMINDER"],
     icon: "bell",
-    // A reminder is a friendly nudge — never a warning. The caller passes the
-    // (random) nudge line via `message`; this default is only a fallback.
+    // Caller passes the reminder line via `message`. This is only a fallback.
     bodySegs: [
       [
         {
-          t: `A friendly nudge to finish your ${period} ${noun} activity.`,
+          t: `Hey — just a reminder. Please do your ${noun}.`,
           color: LIGHT.inkSoft,
           bold: true,
         },
       ],
-      [{ t: "A little progress each day keeps you on track. You've got this!", color: LIGHT.ink }],
     ],
   });
 }

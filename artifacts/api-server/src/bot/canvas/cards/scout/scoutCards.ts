@@ -15,6 +15,7 @@ import {
   toPng,
   RBX,
 } from "../roblox/shared";
+import { accentRail, hubHeader, numberedTile } from "../../hubFrame";
 
 const SCOUT = {
   accent: "#0d9488",
@@ -41,53 +42,47 @@ export interface ScoutHomeCardView {
 
 export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise<Buffer> {
   const W = 960;
-  const H = 580;
+  const H = 560;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
-  brand(ctx);
-
-  text(ctx, "Scout Hub", 40, 88, { size: 40, weight: "bold", color: RBX.ink });
-  text(
-    ctx,
-    "Numbers plus meaning — Intelligence turns CCU history into watchlists.",
-    40,
-    136,
-    { size: 18, color: RBX.soft, maxWidth: W - 80 }
-  );
-
-  card(ctx, 40, 180, W - 80, 130, { radius: 18, shadow: false });
-  text(ctx, "MILITARY TYCOON LIVE", 64, 220, {
-    size: 13,
-    weight: "bold",
-    color: SCOUT.accentDeep,
+  accentRail(ctx, H, SCOUT.accent);
+  const bodyY = hubHeader(ctx, {
+    eyebrow: "Scout",
+    title: "See what the numbers mean",
+    subtitle: "Start with the live game. The buttons below open each list.",
+    width: W,
+    accent: SCOUT.accentDeep,
+    pad: 40,
   });
-  text(ctx, view.mtName ?? "Military Tycoon", 64, 258, {
-    size: 28,
+
+  card(ctx, 40, bodyY, W - 80, 100, { radius: 16, shadow: false });
+  text(ctx, "LIVE", 64, bodyY + 32, { size: 13, weight: "bold", color: SCOUT.accentDeep });
+  text(ctx, view.mtName ?? "Military Tycoon", 64, bodyY + 64, {
+    size: 26,
     weight: "bold",
     color: RBX.ink,
   });
   text(
     ctx,
     `Players ${view.mtPlaying ?? "—"}   ${view.mtDelta ? view.mtDelta : "Snapshot to start history"}`,
-    64,
-    292,
-    { size: 16, color: RBX.soft }
+    W - 64,
+    bodyY + 62,
+    { size: 18, weight: "bold", color: RBX.ink, align: "right" }
   );
 
-  const tiles: Array<[string, string]> = [
-    ["INTEL", "What the numbers mean"],
-    ["TRENDING", "Hot games right now"],
-    ["TOP GENRE", "Leaders by category"],
-    ["UPDATES", "Recently patched"],
+  const tiles: Array<[string, string, string]> = [
+    ["Read", "Intel", "What the numbers mean"],
+    ["Watch", "Trending", "Hot games right now"],
+    ["Compare", "Top genre", "Leaders by category"],
+    ["Check", "Updates", "Recently patched"],
   ];
   let x = 40;
-  for (const [title, sub] of tiles) {
-    card(ctx, x, 340, 215, 130, { radius: 16, shadow: false });
-    text(ctx, title, x + 20, 385, { size: 15, weight: "bold", color: SCOUT.accentDeep });
-    text(ctx, sub, x + 20, 425, { size: 18, weight: "bold", color: RBX.ink, maxWidth: 175 });
+  const tileY = bodyY + 116;
+  tiles.forEach(([kicker, title, detail], i) => {
+    numberedTile(ctx, x, tileY, 215, 168, i + 1, kicker, title, detail, SCOUT.accentDeep);
     x += 230;
-  }
+  });
 
   footerNote(
     ctx,

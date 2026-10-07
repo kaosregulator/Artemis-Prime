@@ -236,7 +236,7 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     completionPct: pct,
     completed: s.snap.completed,
     active: s.snap.active,
-    needsActionLabel: needsAction ? `Needs action: ${needsActionParts.join(" · ")}` : "All clear — everyone is on pace",
+    needsActionLabel: needsAction ? `Needs a look: ${needsActionParts.join(" · ")}` : "All clear — nothing needs a message",
     tiles: [
       { label: "Complete", value: s.snap.completed, tone: "good" },
       { label: "Attention", value: s.attention, tone: "warn" },
@@ -255,7 +255,8 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     .setColor(needsAction ? parseInt(PALETTE.amber.slice(1), 16) : parseInt(PALETTE.green.slice(1), 16))
     .setImage("attachment://command-center.png")
     .setDescription(
-      `**🧾 Recent activity** · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
+      `**1** Check who needs a look. **2** Open a button. **3** Message them with **/xpwarn**.\n` +
+      `Recent activity · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
         (s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._")
     )
     .setFooter({ text: "Live dashboard · refreshes automatically when data changes" })

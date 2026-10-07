@@ -1,5 +1,4 @@
 import {
-  EmbedBuilder,
   AttachmentBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
@@ -22,61 +21,41 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   }
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
-  const activity = clan?.activityName || "XP";
+  const activity = clan?.activityName || "activity";
+  const game = clan?.gameName || "your game";
   const officer = isOfficer(interaction.member, clan ?? null);
 
   const sections = [
-      {
-        title: "For members",
-        accent: "#2e9e57",
-        lines: [
-          `Officers verify ${activity} in-game — you never submit it`,
-          `/warnings  —  your private standing card (history, clean points, avatars)`,
-          `/leaderboard  —  activity standing (top 3 podium + roster)`,
-          `/calendar  —  your ${activity} month calendar`,
-          `/dispute  —  contest a warning (or use the button on /warnings)`,
-          `/roblox · /scout · /market  —  Roblox hubs (menus & buttons inside)`,
-        ],
-      },
-    ];
-  if (officer) {
-    sections.push(
-      {
-        title: "Command center",
-        accent: "#3f51e0",
-        lines: [
-          `/panel  —  live staff board (survives restarts)`,
-          `/warnings  —  Command Center member editor (no target)`,
-          `/warnings member:…  —  standing card with lifetime history`,
-          `/viewlink @user  —  private player dashboard (warnings + activity)`,
-          `/link  —  assign Roblox avatars (shows Discord nick + username; role walkthrough)`,
-        ],
-      },
-      {
-        title: "Logging & enforcement",
-        accent: "#c9820a",
-        lines: [
-          `/entry @user <amount>  —  log ${activity}`,
-          `/xp set | add | remove | complete | review`,
-          `/xpwarn  —  warn or remind many members with a live preview`,
-          `/missing  —  who hasn't hit today's target`,
-        ],
-      },
-      {
-        title: "Tickets & setup",
-        accent: "#0e9cbb",
-        lines: [
-          `/disputes · /notifications · /tickets  —  also on /panel`,
-          `/setup  —  goals, channels, roles, enforcement`,
-          `/leaderboard  —  activity standing & clean record`,
-        ],
-      }
-    );
-  }
+    {
+      title: "Members",
+      accent: "#2e9e57",
+      lines: ["Check yourself", "Open /warnings. A wrong warning goes through /dispute."],
+    },
+    {
+      title: "Messages",
+      accent: "#c9820a",
+      lines: officer
+        ? ["Remind or warn", "/xpwarn sends the message. /warnboard ranks who has the most."]
+        : ["Officers message you", "A reminder is a nudge. A warning means the activity was missed."],
+    },
+    {
+      title: "Awards",
+      accent: "#3f51e0",
+      lines: ["Clan points", "/leaderboard is that award. It is separate from warnings."],
+    },
+    {
+      title: officer ? "Setup" : "Tools",
+      accent: "#0e9cbb",
+      lines: officer
+        ? ["Your server", "/setup sets the role, channels, and warning image. /link reads the Bloxlink nick."]
+        : ["Roblox tools", "/roblox, /scout, and /market. Officers use /link."],
+    },
+  ];
 
   const png = await renderOffThread("helpCard", {
-    communityName: clan?.clanName ?? "Artemis Prime",
+    communityName: clan?.clanName ?? "Clan",
     activityName: activity,
+    gameName: game,
     sections,
   });
   await interaction.editReply({

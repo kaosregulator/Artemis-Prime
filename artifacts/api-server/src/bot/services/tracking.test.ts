@@ -217,12 +217,15 @@ describe("tracking period + requirement", () => {
 });
 
 describe("member reminder messages", () => {
-  it("returns a friendly nudge (never a warning, no accounting)", () => {
-    const clan = baseClan({ trackingPeriod: "daily" });
+  it("returns a simple activity reminder (never a warning, no period countdown)", () => {
+    const clan = baseClan({ trackingPeriod: "daily", activityName: "XP", gameName: "Roblox" });
     const body = memberReminderBody(clan);
     assert.ok(body.trim().length > 0);
-    // A reminder is a nudge — it must never threaten or read like a warning.
+    // A reminder is a short activity message — never a warning or an XP reset clock.
     assert.doesNotMatch(body, /warning/i);
+    assert.doesNotMatch(body, /period|resets|days left/i);
+    assert.match(body, /XP/);
+    assert.match(body, /Roblox/);
     assert.equal(containsStaffAccounting(body), false);
     assert.doesNotMatch(body, /\d+\s*\/\s*\d+/);
   });
@@ -272,6 +275,7 @@ describe("member warning messages", () => {
     const body = memberWarningBody("Did not show up for clan event.");
     assert.match(body, /Did not show up for clan event/);
     assert.match(body, /warning/i);
+    assert.match(body, /missed your/i);
   });
 });
 

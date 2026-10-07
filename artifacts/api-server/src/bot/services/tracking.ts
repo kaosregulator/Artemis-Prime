@@ -140,51 +140,61 @@ export function sanitizeMemberReason(reason: string | null | undefined): string 
  */
 export const DISPUTE_COMMAND = "/dispute";
 
-/**
- * Rotating friendly reminder lines. A reminder is *never* a warning, so these
- * stay light — a nudge or a bit of motivation, picked at random each send so
- * reminders don't read like a form letter.
- */
-const REMINDER_NUDGES: string[] = [
-  "Hey — don't forget to finish your activity before the period closes!",
-  "Quick nudge: your activity still needs doing. You've got this!",
-  "A little progress each day adds up — time to log some activity.",
-  "Friendly reminder to knock out your activity while there's still time.",
-  "Champions are made one grind at a time — go get that activity done!",
-  "Still time to hit your goal today. Let's get your activity in!",
-  "Consistency beats intensity — a quick session keeps you on track.",
-  "Your clan's counting on you — a bit of activity goes a long way.",
-  "Don't let the streak slip — squeeze in your activity today.",
-  "Small steps, big results. Log your activity and stay ahead!",
-];
+/** Chosen activity label for member-facing copy (never a hard-coded "XP"). */
+export function activityWord(clan: Pick<Clan, "activityName">): string {
+  return (clan.activityName || "activity").trim() || "activity";
+}
 
-/** Pick a random friendly nudge line (deterministic input allowed for tests). */
-export function reminderNudge(seed?: number): string {
-  const i =
-    seed === undefined
-      ? Math.floor(Math.random() * REMINDER_NUDGES.length)
-      : ((seed % REMINDER_NUDGES.length) + REMINDER_NUDGES.length) % REMINDER_NUDGES.length;
-  return REMINDER_NUDGES[i] ?? REMINDER_NUDGES[0]!;
+/** Chosen game label for reminder copy. */
+export function gameWord(clan: Pick<Clan, "gameName">): string {
+  return (clan.gameName || "the game").trim() || "the game";
 }
 
 /**
- * Default member-facing reminder body (no accounting, never a warning). A
- * custom officer note wins; otherwise a random friendly nudge is used. Compute
- * this ONCE per send and pass the result to both the embed and the canvas so
- * the two surfaces can never drift.
+ * Simple reminder lines. A reminder is a short message for the activity the
+ * server chose — not an XP countdown, not a period-reset notice, and never a
+ * warning. Picked at random so repeat sends don't read like a form letter.
+ */
+function reminderLines(activity: string, game: string): string[] {
+  return [
+    `Hey — just a reminder ${game} is still going. Please do your ${activity}.`,
+    `Quick reminder: ${game} is still here. Hop in and do your ${activity}.`,
+    `Hey — ${game} didn't go anywhere. Please get your ${activity} done.`,
+    `Just a reminder to do your ${activity}. ${game} is still waiting on you.`,
+  ];
+}
+
+/** Pick a reminder line (deterministic seed allowed for tests). */
+export function reminderNudge(
+  clan: Pick<Clan, "activityName" | "gameName">,
+  seed?: number
+): string {
+  const lines = reminderLines(activityWord(clan), gameWord(clan));
+  const i =
+    seed === undefined
+      ? Math.floor(Math.random() * lines.length)
+      : ((seed % lines.length) + lines.length) % lines.length;
+  return lines[i] ?? lines[0]!;
+}
+
+/**
+ * Default member-facing reminder body. A custom officer note wins; otherwise
+ * a short "the game is still here, please do your activity" line. Compute this
+ * ONCE per send and pass it to both the embed and the canvas.
  */
 export function memberReminderBody(
-  clan: Pick<Clan, "trackingPeriod" | "activityName">,
+  clan: Pick<Clan, "activityName" | "gameName">,
   customNote?: string | null
 ): string {
   const note = (customNote ?? "").trim();
   if (note && !containsStaffAccounting(note)) return note;
-  return reminderNudge();
+  return reminderNudge(clan);
 }
 
 /** Short channel ping line for reminders. */
-export function memberReminderPingLine(): string {
-  return "🔔 this is your activity reminder.";
+export function memberReminderPingLine(activity = "activity"): string {
+  const noun = activity.trim() || "activity";
+  return `🔔 just a reminder — please do your ${noun}.`;
 }
 
 /**
@@ -230,10 +240,9 @@ export function memberWarningBody(
   const ticket = warningId ? `\n\n**Warning ticket:** #${warningId}` : "";
   const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `⚠️ You received a **${noun} Warning**.\n\n` +
+    `Hey — you missed your **${noun}**. This is a warning.\n\n` +
     `**Reason:** ${safe}\n\n` +
-    `If you believe this warning is incorrect, run \`${DISPUTE_COMMAND}\` to dispute it — ` +
-    `have your proof/screenshot ready to submit with the dispute.` +
+    `If this is wrong, run \`${DISPUTE_COMMAND}\` and have your proof ready.` +
     ticket
   );
 }
@@ -246,8 +255,8 @@ export function memberWarningCanvasMessage(
   const safe = sanitizeMemberReason(reason);
   const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `You received a ${noun} Warning. Reason: ${safe}. ` +
-    `If this is incorrect, run ${DISPUTE_COMMAND} to dispute it — have your proof ready.`
+    `Hey — you missed your ${noun}. This is a warning. Reason: ${safe}. ` +
+    `If this is wrong, run ${DISPUTE_COMMAND} and have your proof ready.`
   );
 }
 
@@ -260,9 +269,9 @@ export function memberWarningDmContent(
   const ticket = warningId ? ` (ticket #${warningId})` : "";
   const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `⚠️ You received a **${noun} Warning**${ticket}.\n` +
+    `⚠️ Hey — you missed your **${noun}**. This is a warning${ticket}.\n` +
     `**Reason:** ${sanitizeMemberReason(reason)}\n` +
-    `Dispute with \`${DISPUTE_COMMAND}\` — have your proof/screenshot ready.`
+    `If this is wrong, run \`${DISPUTE_COMMAND}\` and have your proof ready.`
   );
 }
 

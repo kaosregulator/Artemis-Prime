@@ -92,12 +92,6 @@ export async function buildDisputePicker(
   }
 
   const warns = await listActive(clan.guildId, userId);
-  const warnHint = warns.length
-    ? `\n\nYour active warnings: ${warns
-        .slice(0, 5)
-        .map((w) => `**#${w.id}**`)
-        .join(", ")} — pass \`warning_id\` when type is **warning**.`
-    : "";
 
   if (!clan.disputeCategoryId) {
     return {
@@ -107,14 +101,31 @@ export async function buildDisputePicker(
     };
   }
 
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("How to dispute")
+    .setDescription(
+      "Staff answer in a private channel. Resolving a dispute does not remove the warning by itself."
+    )
+    .addFields(
+      { name: "1  Type", value: "Warning, record, or a role action.", inline: true },
+      { name: "2  Explain", value: "Say what happened, in your own words.", inline: true },
+      { name: "3  Evidence", value: "Attach a screenshot from your device.", inline: true },
+      { name: "4  Send", value: "Run **/dispute**. That opens the channel.", inline: true }
+    );
+  if (warns.length) {
+    embed.addFields({
+      name: "Your active warnings",
+      value: warns
+        .slice(0, 5)
+        .map((w) => `**#${w.id}**`)
+        .join("  ·  "),
+    });
+  }
+
   return {
-    content:
-      `Use **/dispute** to open a private ticket with staff.\n` +
-      `• Choose a **type** (warning / XP record / role action)\n` +
-      `• Write your **explanation**\n` +
-      `• Have your **XP proof/screenshot** ready — attach it with the **evidence** option` +
-      ` (Discord's normal upload — no image URL)\n` +
-      warnHint,
+    content: `Dispute steps for **${clan.clanName}**.`,
+    embeds: [embed],
     components: [],
   };
 }
@@ -297,6 +308,11 @@ async function officerGuard(
   return clan;
 }
 
+/** Discord rejects an embed description over 4096 characters. */
+function clipEmbed(text: string): string {
+  return text.length <= 4096 ? text : `${text.slice(0, 4093)}…`;
+}
+
 function disputeLine(d: Dispute): string {
   const type = DISPUTE_TYPE_LABEL[(d.disputeType as DisputeType) || "warning"] ?? d.disputeType;
   const ch = d.channelId ? ` · <#${d.channelId}>` : "";
@@ -307,15 +323,16 @@ export async function buildDisputeReview(clan: Clan): Promise<BaseMessageOptions
   const open = await listDisputes(clan.guildId, "open", 25);
   const embed = new EmbedBuilder()
     .setColor(open.length ? 0xfaa61a : 0x3ba55d)
-    .setTitle(`⚖️ XP Disputes — ${clan.clanName}`)
+    .setTitle(`Disputes — ${clan.clanName}`)
     .setDescription(
-      open.length
-        ? `**${open.length}** open ticket(s):\n\n${open.map(disputeLine).join("\n")}`
-        : "✨ No open dispute tickets."
+      clipEmbed(open.length ? `**${open.length} open**\n${open.map(disputeLine).join("\n")}` : "No open disputes.")
     )
-    .setFooter({
-      text: "Handle disputes inside their private channel (Resolve / Reject / Close). Removing a warning is a separate action.",
-    });
+    .addFields(
+      { name: "1  Open", value: "Pick one from the menu.", inline: true },
+      { name: "2  Work it", value: "Use its private channel.", inline: true },
+      { name: "3  Finish", value: "Resolve, reject, or close there.", inline: true }
+    )
+    .setFooter({ text: "Tickets stay as they are. Removing a warning is a separate button." });
 
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
   if (open.length) {

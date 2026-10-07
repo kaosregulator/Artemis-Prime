@@ -1,11 +1,5 @@
-import {
-  createSurface,
-  paintBackground,
-  card,
-  text,
-  PALETTE,
-  toPng,
-} from "../theme";
+import { createSurface, paintBackground, text, PALETTE, toPng } from "../theme";
+import { accentRail, hubHeader, numberedTile } from "../hubFrame";
 
 export interface HelpSection {
   title: string;
@@ -16,69 +10,51 @@ export interface HelpSection {
 export interface HelpCardView {
   communityName: string;
   activityName: string;
+  /** Game name, used in the one-line explanation. */
+  gameName?: string;
   sections: HelpSection[];
 }
 
-/** Help card — wider + larger type so Discord mobile still reads cleanly. */
+/**
+ * Organized start-here card. Four numbered steps, same chrome as the hubs.
+ * `sections` supplies the step copy (kicker, title, detail) so /help stays the
+ * single source of the words.
+ */
 export async function renderHelpCard(view: HelpCardView): Promise<Buffer> {
   const W = 1100;
-  const pad = 48;
-  const headerH = 140;
-  const lineH = 40;
-  const sectionPadTop = 64;
-  const sectionGap = 24;
-
-  const sectionHeights = view.sections.map((s) => sectionPadTop + s.lines.length * lineH + 28);
-  const bodyH = sectionHeights.reduce((a, b) => a + b, 0) + sectionGap * Math.max(0, view.sections.length - 1);
-  const H = headerH + bodyH + 48;
-
+  const H = 720;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
+  accentRail(ctx, H, PALETTE.blurple);
 
-  text(ctx, view.communityName.toUpperCase(), pad, 52, {
-    size: 18,
-    weight: "bold",
-    color: PALETTE.soft,
-    maxWidth: W - pad * 2,
-  });
-  text(ctx, `How ${view.activityName} tracking works`, pad, 100, {
-    size: 40,
-    weight: "bold",
-    color: PALETTE.text,
-    maxWidth: W - pad * 2,
+  const game = view.gameName?.trim() || "your game";
+  const bodyY = hubHeader(ctx, {
+    eyebrow: view.communityName,
+    title: "Start here",
+    subtitle: `${view.activityName} is what people do in ${game}.`,
+    subtitle2: "A warning is a message. Clan points are awards staff give out.",
+    width: W,
+    accent: PALETTE.blurple,
   });
 
-  let y = headerH;
-  for (let i = 0; i < view.sections.length; i++) {
-    const s = view.sections[i]!;
-    const h = sectionHeights[i]!;
-    card(ctx, pad, y, W - pad * 2, h, { fill: PALETTE.card, shadow: false, radius: 18 });
+  const steps = view.sections.slice(0, 4);
+  const colW = (W - 96 - 20) / 2;
+  const tileH = 200;
+  steps.forEach((s, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = 48 + col * (colW + 20);
+    const y = bodyY + row * (tileH + 16);
+    const [title, detail] = s.lines;
+    numberedTile(ctx, x, y, colW, tileH, i + 1, s.title, title ?? "", detail ?? "", s.accent);
+  });
 
-    ctx.fillStyle = s.accent;
-    ctx.fillRect(pad, y, 6, h);
-
-    text(ctx, s.title, pad + 32, y + 42, {
-      size: 24,
-      weight: "bold",
-      color: PALETTE.text,
-    });
-
-    let ly = y + sectionPadTop + 14;
-    for (const line of s.lines) {
-      ctx.beginPath();
-      ctx.arc(pad + 40, ly - 7, 5, 0, Math.PI * 2);
-      ctx.fillStyle = s.accent;
-      ctx.fill();
-      text(ctx, line, pad + 58, ly, {
-        size: 22,
-        color: PALETTE.soft,
-        maxWidth: W - pad * 2 - 90,
-      });
-      ly += lineH;
-    }
-    y += h + sectionGap;
-  }
+  text(ctx, "Each step names the command to run. Nothing here is locked to one server.", 48, H - 28, {
+    size: 15,
+    color: PALETTE.muted,
+    maxWidth: W - 96,
+  });
 
   return toPng(rc.canvas);
 }

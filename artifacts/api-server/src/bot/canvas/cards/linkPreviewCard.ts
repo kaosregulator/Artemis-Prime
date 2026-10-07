@@ -11,6 +11,7 @@ import {
   toPng,
   PALETTE,
 } from "../theme";
+import { accentRail, hubHeader } from "../hubFrame";
 
 export interface LinkPreviewCardView {
   title?: string;
@@ -32,6 +33,7 @@ export async function renderLinkPreviewCard(view: LinkPreviewCardView): Promise<
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
+  accentRail(ctx, H, "#00a2ff");
 
   const nick = view.discordNickname?.trim() || null;
   const username = view.discordName?.trim() || "member";
@@ -40,47 +42,43 @@ export async function renderLinkPreviewCard(view: LinkPreviewCardView): Promise<
   const discordSecondary = hasDistinctNick ? `@${username}` : null;
   const discordInitial = discordPrimary[0] ?? "?";
 
-  text(ctx, "AVATAR LINK", 44, 44, { size: 15, weight: "bold", color: "#00a2ff" });
-  text(ctx, view.title ?? "Match Discord → Roblox", 44, 88, {
-    size: 32,
-    weight: "bold",
-    color: PALETTE.text,
+  const bodyY = hubHeader(ctx, {
+    eyebrow: "Link",
+    title: view.title ?? "Match Discord to Roblox",
+    subtitle:
+      view.hint ?? "Discord on the left, Roblox on the right. Bloxlink nicks usually match.",
+    width: W,
+    accent: "#0074bd",
+    pad: 44,
   });
-  text(
-    ctx,
-    view.hint ?? "Pick a Roblox user below. Their avatar will show on warnings & standing cards.",
-    44,
-    128,
-    { size: 16, color: PALETTE.soft, maxWidth: W - 88 }
-  );
 
-  card(ctx, 44, 168, 390, 250, { radius: 20, shadow: false });
-  card(ctx, 486, 168, 390, 250, { radius: 20, shadow: false });
+  card(ctx, 44, bodyY, 390, 250, { radius: 20, shadow: false });
+  card(ctx, 486, bodyY, 390, 250, { radius: 20, shadow: false });
 
   const [dImg, rImg] = await Promise.all([
     fetchAvatar(view.discordAvatarUrl),
     fetchAvatar(view.robloxAvatarUrl),
   ]);
 
-  drawAvatar(ctx, dImg, 170, 190, 120, discordInitial, PALETTE.blurpleSoft);
-  text(ctx, "DISCORD", 64, 340, { size: 13, weight: "bold", color: PALETTE.muted });
-  text(ctx, discordPrimary, 64, 372, {
+  drawAvatar(ctx, dImg, 170, bodyY + 16, 120, discordInitial, PALETTE.blurpleSoft);
+  text(ctx, "1  DISCORD", 64, bodyY + 168, { size: 13, weight: "bold", color: PALETTE.muted });
+  text(ctx, discordPrimary, 64, bodyY + 198, {
     size: 22,
     weight: "bold",
     color: PALETTE.text,
     maxWidth: 340,
   });
   if (discordSecondary) {
-    text(ctx, discordSecondary, 64, 398, {
+    text(ctx, discordSecondary, 64, bodyY + 224, {
       size: 15,
       color: PALETTE.muted,
       maxWidth: 340,
     });
   }
 
-  drawAvatar(ctx, rImg, 612, 190, 120, (view.robloxName ?? "R")[0] ?? "R", "#00a2ff");
-  text(ctx, "ROBLOX", 506, 340, { size: 13, weight: "bold", color: PALETTE.muted });
-  text(ctx, view.robloxName ?? "Not linked yet", 506, 372, {
+  drawAvatar(ctx, rImg, 612, bodyY + 16, 120, (view.robloxName ?? "R")[0] ?? "R", "#00a2ff");
+  text(ctx, "2  ROBLOX", 506, bodyY + 168, { size: 13, weight: "bold", color: PALETTE.muted });
+  text(ctx, view.robloxName ?? "Not linked yet", 506, bodyY + 198, {
     size: 22,
     weight: "bold",
     color: view.robloxName ? PALETTE.text : PALETTE.muted,
