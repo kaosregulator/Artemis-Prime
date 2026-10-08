@@ -371,7 +371,10 @@ export async function fetchAvatar(url: string | null, timeoutMs = 4500): Promise
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let img: Image;
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; ArtemisPrime/1.0)" },
+      });
       if (!res.ok) return null;
       img = await loadImage(Buffer.from(await res.arrayBuffer()));
     } finally {
