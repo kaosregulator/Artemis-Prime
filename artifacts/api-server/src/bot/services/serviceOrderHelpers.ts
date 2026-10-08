@@ -474,6 +474,106 @@ export function isImageAttachment(opts: {
   return /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
 }
 
+/** Canvas PNGs the bot posts. They are not the customer's order photos. */
+export function isGeneratedOrderCanvas(name: string | null | undefined): boolean {
+  return /^(order-lv-|order-tracker|review-lv-|review-)/i.test(name ?? "");
+}
+
+export interface LiveOrderFile {
+  url: string;
+  name: string;
+  contentType?: string | null;
+  size?: number;
+}
+
+/**
+ * Pair saved order photos with the files currently on the ticket.
+ * Discord CDN links expire, so a fresh message fetch is the source of truth.
+ * Saved rows stay in order. A generated canvas PNG is never treated as a photo.
+ * When every saved name misses, live ticket images are used so a rename does
+ * not blank the card.
+ */
+export function matchLiveOrderPhotos(
+  stored: ServiceOrderAttachment[],
+  live: LiveOrderFile[],
+  max = SERVICE_ORDER_MAX_PHOTOS
+): ServiceOrderAttachment[] {
+  const buckets = new Map<string, LiveOrderFile[]>();
+  const liveImages: LiveOrderFile[] = [];
+  for (const file of live) {
+    if (isGeneratedOrderCanvas(file.name)) continue;
+    if (!isImageAttachment(file)) continue;
+    liveImages.push(file);
+    const key = file.name.toLowerCase();
+    const list = buckets.get(key) ?? [];
+    list.push(file);
+    buckets.set(key, list);
+  }
+
+  const used = new Set<string>();
+  const out: ServiceOrderAttachment[] = [];
+  const saved = stored.filter((item) => isImageAttachment(item));
+  let matchedFresh = 0;
+  for (const item of saved) {
+    const fresh = buckets.get(item.name.toLowerCase())?.find((file) => !used.has(file.url));
+    if (fresh) matchedFresh += 1;
+    const url = fresh?.url || item.url;
+    if (!url || used.has(url)) continue;
+    used.add(url);
+    out.push({
+      url,
+      name: fresh?.name || item.name || "upload.png",
+      contentType: fresh?.contentType ?? item.contentType ?? null,
+      size: fresh?.size || item.size || 0,
+    });
+    if (out.length >= max) break;
+  }
+
+  // Saved names missed every file on the ticket. The order photos are posted
+  // when the ticket opens, so take the oldest live images (history is newest
+  // first) instead of later screenshots in the channel.
+  if (saved.length && matchedFresh === 0 && liveImages.length) {
+    const oldestFirst = [...liveImages].reverse();
+    return oldestFirst.slice(0, max).map((file) => ({
+      url: file.url,
+      name: file.name || "upload.png",
+      contentType: file.contentType ?? null,
+      size: file.size ?? 0,
+    }));
+  }
+  return out;
+}
+
+/** Try the media host when the CDN host rejects the same signed link. */
+export function discordAttachmentFallbacks(url: string): string[] {
+  const out = [url];
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "cdn.discordapp.com") {
+      parsed.hostname = "media.discordapp.net";
+      out.push(parsed.toString());
+    } else if (parsed.hostname === "media.discordapp.net") {
+      parsed.hostname = "cdn.discordapp.com";
+      out.push(parsed.toString());
+    }
+  } catch {
+    /* not a URL */
+  }
+  return out;
+}
+
+/**
+ * A posted canvas already has its pixels. Replace that file only when the new
+ * render actually has the photos, or when the order never had any.
+ */
+export function shouldKeepExistingOrderCanvas(opts: {
+  photosExpected: number;
+  photosBaked: number;
+  existingFiles: number;
+}): boolean {
+  return opts.photosExpected > 0 && opts.photosBaked === 0 && opts.existingFiles > 0;
+}
+
 export function starBar(n: number, max = 5): string {
   const filled = Math.max(0, Math.min(max, Math.round(n)));
   return "★".repeat(filled) + "☆".repeat(max - filled);

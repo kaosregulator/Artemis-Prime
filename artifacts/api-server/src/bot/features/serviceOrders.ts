@@ -21,6 +21,7 @@ import {
   placeServiceOrder,
   applyServiceOrderAction,
   syncOrderAttachments,
+  loadOrderPhotoFiles,
   getServiceOrder,
   listActiveServiceOrders,
   listServiceOrders,
@@ -36,7 +37,6 @@ import {
   SERVICE_ORDER_ACCESS_DENIED,
   deleteServiceOrderChannel,
   captureServiceOrderTranscript,
-  parseAttachmentsJson,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
 import {
@@ -1159,31 +1159,29 @@ async function runViewPics(interaction: ButtonInteraction, orderId: number) {
     return;
   }
 
-  const photos = parseAttachmentsJson(order.attachmentsJson)
-    .filter((a) => isImageAttachment(a))
-    .slice(0, SERVICE_ORDER_MAX_PHOTOS);
+  const loaded = await loadOrderPhotoFiles(interaction.client, order);
 
-  if (!photos.length) {
+  if (!loaded.files.length) {
     await interaction.editReply({
-      content:
-        "📷 No photos on this order yet. Upload images in the ticket, then staff can use **Sync Files**.",
+      content: loaded.expected
+        ? `📷 **${order.publicId}** still lists **${loaded.expected}** photo(s), but the saved Discord link no longer opens and the ticket does not have the file anymore.`
+        : "📷 No photos on this order yet. Upload images in the ticket, then staff can use **Sync Files**.",
     });
     return;
   }
 
   try {
     await interaction.editReply({
-      content: `📷 **${photos.length}** photo(s) for **${order.publicId}** (ephemeral — only you see this):`,
-      files: photos.map((a) => ({
-        attachment: a.url,
-        name: a.name || "order-photo.png",
+      content: `📷 **${loaded.files.length}** photo(s) for **${order.publicId}** (only you can see this):`,
+      files: loaded.files.map((photo) => ({
+        attachment: photo.data,
+        name: photo.name || "order-photo.png",
       })),
     });
   } catch (err) {
     logger.warn({ err, orderId }, "view pics failed");
     await interaction.editReply({
-      content:
-        "⚠️ Couldn't attach the photos here (CDN may have expired). Scroll the ticket for the photo message, or ask staff to **Sync Files**.",
+      content: "⚠️ Couldn't post the photos here. Scroll the ticket for the photo message.",
     });
   }
 }

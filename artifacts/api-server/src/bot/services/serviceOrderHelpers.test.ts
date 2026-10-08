@@ -18,6 +18,9 @@ import {
   formatServiceOrderDetails,
   parseServiceOrderDetails,
   queuePlaceMessage,
+  matchLiveOrderPhotos,
+  discordAttachmentFallbacks,
+  shouldKeepExistingOrderCanvas,
   parseTagsField,
   parseLevelInput,
   parseCurrentAndTargetLevels,
@@ -227,6 +230,110 @@ describe("serviceOrderHelpers", () => {
     assert.match(queuePlaceMessage(1, 2), /#1/);
     assert.match(queuePlaceMessage(3, 1), /#3/);
     assert.match(queuePlaceMessage(3, 1), /1 vehicle/);
+  });
+
+  it("refreshes saved order photos from the live ticket and skips canvas pngs", () => {
+    const stored = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/old.png?ex=expired",
+        name: "before.png",
+        contentType: "image/png",
+        size: 10,
+      },
+    ];
+    const live = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/order-LV-0001.png?ex=new",
+        name: "order-LV-0001.png",
+        contentType: "image/png",
+        size: 20,
+      },
+      {
+        url: "https://cdn.discordapp.com/attachments/1/before.png?ex=new",
+        name: "before.png",
+        contentType: "image/png",
+        size: 30,
+      },
+    ];
+    const matched = matchLiveOrderPhotos(stored, live);
+    assert.equal(matched.length, 1);
+    assert.equal(matched[0]?.url, live[1]?.url);
+    assert.equal(matched[0]?.name, "before.png");
+  });
+
+  it("uses live ticket images when saved filenames no longer match", () => {
+    const stored = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/old.png?ex=expired",
+        name: "upload.png",
+        contentType: "image/png",
+        size: 10,
+      },
+    ];
+    const live = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/shot.jpg?ex=new",
+        name: "shot.jpg",
+        contentType: "image/jpeg",
+        size: 40,
+      },
+    ];
+    const matched = matchLiveOrderPhotos(stored, live);
+    assert.equal(matched[0]?.url, live[0]?.url);
+  });
+
+  it("keeps the oldest ticket photos when saved names miss and newer files exist", () => {
+    const stored = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/old.png?ex=expired",
+        name: "upload.png",
+        contentType: "image/png",
+        size: 10,
+      },
+    ];
+    const live = [
+      {
+        url: "https://cdn.discordapp.com/attachments/1/chat.png?ex=new",
+        name: "chat.png",
+        contentType: "image/png",
+        size: 20,
+      },
+      {
+        url: "https://cdn.discordapp.com/attachments/1/order.jpg?ex=new",
+        name: "order.jpg",
+        contentType: "image/jpeg",
+        size: 30,
+      },
+    ];
+    const matched = matchLiveOrderPhotos(stored, live, 1);
+    assert.equal(matched[0]?.name, "order.jpg");
+  });
+
+  it("tries the Discord media host when the CDN link is the one we have", () => {
+    const url = "https://cdn.discordapp.com/attachments/9/shot.png?ex=1&hm=abc";
+    assert.deepEqual(discordAttachmentFallbacks(url), [
+      url,
+      "https://media.discordapp.net/attachments/9/shot.png?ex=1&hm=abc",
+    ]);
+  });
+
+  it("keeps a posted canvas when the new render could not load its photos", () => {
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 0, existingFiles: 1 }),
+      true
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 2, existingFiles: 1 }),
+      false
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 0, photosBaked: 0, existingFiles: 1 }),
+      false
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 0, existingFiles: 0 }),
+      false
+    );
   });
 
   it("parses free-text tags without a fixed list", () => {

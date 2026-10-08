@@ -7,6 +7,7 @@ import { setCommandCenterClient } from "./services/commandCenter";
 import { setOrderTrackerClient } from "./services/orderTracker";
 import { setAltBoardClient } from "./services/altBoard";
 import { startScoutAutoSnapshots } from "./services/scout";
+import { rehydrateOrderPhotoCanvases } from "./services/serviceOrders";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -148,6 +149,9 @@ export function startBot() {
     setCommandCenterClient(c);
     setOrderTrackerClient(c);
     setAltBoardClient(c);
+    void rehydrateOrderPhotoCanvases(c).catch((err) => {
+      logger.warn({ err }, "Order photo canvas rehydrate failed");
+    });
     await registerCommands(c);
     startScheduler(c);
     // Background Military Tycoon (and tracked) snapshots for Game Intelligence.

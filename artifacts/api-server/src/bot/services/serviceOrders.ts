@@ -11,7 +11,7 @@ import {
   type ServiceKey,
   type ServiceOrderAttachment,
 } from "@workspace/db";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
 import {
   AttachmentBuilder,
   ChannelType,
@@ -29,7 +29,7 @@ import {
   type MessageEditOptions,
   type MessageCreateOptions,
 } from "discord.js";
-import { getMember, updateClan, isOfficer } from "./config";
+import { getClan, getMember, updateClan, isOfficer } from "./config";
 import { buildDisputeOverwrites, disputeStaffRoleIds } from "./disputeHelpers";
 import { createNotification } from "./notifications";
 import { staffLog } from "./logging";
@@ -58,6 +58,10 @@ import {
   parseServiceOrderDetails,
   queuePlaceMessage,
   isImageAttachment,
+  isGeneratedOrderCanvas,
+  matchLiveOrderPhotos,
+  discordAttachmentFallbacks,
+  shouldKeepExistingOrderCanvas,
   SERVICE_ORDER_MIN_PHOTOS,
   SERVICE_ORDER_MAX_PHOTOS,
 } from "./serviceOrderHelpers";
@@ -796,30 +800,27 @@ export async function syncOrderAttachments(opts: {
   const channel = await opts.guild.channels.fetch(opts.order.channelId).catch(() => null);
   if (!channel || !channel.isTextBased()) return opts.order;
 
-  const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  if (!messages) return opts.order;
+  const liveAll = await listTicketFiles(channel);
+  const live = liveAll.filter(
+    (file) => !isGeneratedOrderCanvas(file.name) && isImageAttachment(file)
+  );
 
-  const found: ServiceOrderAttachment[] = [];
-  const seen = new Set<string>();
-  for (const msg of messages.values()) {
-    if (msg.author.bot) continue;
-    for (const att of msg.attachments.values()) {
-      if (seen.has(att.url)) continue;
-      seen.add(att.url);
-      found.push({
-        url: att.url,
-        name: att.name,
-        contentType: att.contentType,
-        size: att.size,
-      });
-    }
+  const stored = parseAttachmentsJson(opts.order.attachmentsJson);
+  const found = matchLiveOrderPhotos(stored, live);
+  const names = new Set(found.map((photo) => photo.name.toLowerCase()));
+  for (const file of live) {
+    if (found.length >= SERVICE_ORDER_MAX_PHOTOS) break;
+    if (names.has(file.name.toLowerCase())) continue;
+    found.push(file);
+    names.add(file.name.toLowerCase());
   }
+  const next = found.length ? found : stored.filter((item) => isImageAttachment(item));
 
   const [updated] = await db
     .update(serviceOrdersTable)
     .set({
-      attachmentsJson: serializeAttachments(found),
-      attachmentCount: found.length,
+      attachmentsJson: serializeAttachments(next),
+      attachmentCount: next.length,
     })
     .where(eq(serviceOrdersTable.id, opts.order.id))
     .returning();
@@ -1014,6 +1015,207 @@ function componentsForAudience(
 }
 
 
+type TicketHistoryChannel = {
+  messages: {
+    fetch: (options: { limit: number; before?: string; after?: string }) => Promise<{
+      size: number;
+      values: () => Iterable<{
+        id: string;
+        attachments: {
+          values: () => Iterable<{
+            url: string;
+            name: string | null;
+            contentType: string | null;
+            size: number;
+          }>;
+        };
+      }>;
+    }>;
+  };
+};
+
+function absorbTicketFiles(
+  live: ServiceOrderAttachment[],
+  messages: {
+    values: () => Iterable<{
+      id: string;
+      attachments: {
+        values: () => Iterable<{
+          url: string;
+          name: string | null;
+          contentType: string | null;
+          size: number;
+        }>;
+      };
+    }>;
+  }
+): { oldest: string; newest: string } {
+  let oldest = "";
+  let newest = "";
+  for (const msg of messages.values()) {
+    if (!oldest || BigInt(msg.id) < BigInt(oldest)) oldest = msg.id;
+    if (!newest || BigInt(msg.id) > BigInt(newest)) newest = msg.id;
+    for (const att of msg.attachments.values()) {
+      live.push({
+        url: att.url,
+        name: att.name || "file",
+        contentType: att.contentType,
+        size: att.size,
+      });
+    }
+  }
+  return { oldest, newest };
+}
+
+/**
+ * Photos are posted when the ticket opens, so read the start of the channel
+ * first, then the latest page in case a file was added later.
+ */
+async function listTicketFiles(channel: TicketHistoryChannel): Promise<ServiceOrderAttachment[]> {
+  const live: ServiceOrderAttachment[] = [];
+  let after = "0";
+  for (let page = 0; page < 3; page++) {
+    const messages = await channel.messages
+      .fetch({ limit: 100, after })
+      .catch(() => null);
+    if (!messages?.size) break;
+    const { newest } = absorbTicketFiles(live, messages);
+    if (messages.size < 100 || !newest || newest === after) break;
+    after = newest;
+  }
+
+  let before: string | undefined;
+  for (let page = 0; page < 2; page++) {
+    const messages = await channel.messages
+      .fetch({ limit: 100, ...(before ? { before } : {}) })
+      .catch(() => null);
+    if (!messages?.size) break;
+    const { oldest } = absorbTicketFiles(live, messages);
+    if (messages.size < 100 || !oldest) break;
+    before = oldest;
+  }
+  return live;
+}
+
+function looksLikeImage(buf: Buffer): boolean {
+  if (buf.length < 16) return false;
+  if (buf[0] === 0x89 && buf[1] === 0x50) return true;
+  if (buf[0] === 0xff && buf[1] === 0xd8) return true;
+  if (buf[0] === 0x47 && buf[1] === 0x49) return true;
+  return buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP";
+}
+
+async function downloadRemoteImage(url: string, timeoutMs = 12_000): Promise<Buffer | null> {
+  for (const candidate of discordAttachmentFallbacks(url)) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(candidate, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; ArtemisPrime/1.0)",
+          Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+      });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (looksLikeImage(buf)) return buf;
+    } catch {
+      /* try the other host */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
+
+function safeImageName(name: string | null | undefined): string {
+  const base = (name || "order-photo.png").replace(/[^\w.\-]+/g, "_").slice(0, 80);
+  if (/\.(png|jpe?g|gif|webp)$/i.test(base)) return base;
+  return `${base}.png`;
+}
+
+const freshPhotoCache = new Map<
+  number,
+  { at: number; photos: ServiceOrderAttachment[]; files?: { name: string; data: Buffer }[] }
+>();
+const FRESH_PHOTO_MS = 20_000;
+
+/**
+ * Discord attachment links expire. Read the ticket and swap in the current
+ * URLs before the canvas is drawn, then save them so View Pics stays in sync.
+ * Ticket and board redraws share one history scan for a few seconds.
+ */
+async function loadFreshOrderPhotos(
+  client: Client,
+  order: ServiceOrder
+): Promise<ServiceOrderAttachment[]> {
+  const hit = freshPhotoCache.get(order.id);
+  if (hit && Date.now() - hit.at < FRESH_PHOTO_MS) return hit.photos;
+
+  const stored = parseAttachmentsJson(order.attachmentsJson)
+    .filter((item) => isImageAttachment(item))
+    .slice(0, SERVICE_ORDER_MAX_PHOTOS);
+  if (!stored.length || !order.channelId) return stored;
+
+  const channel = await client.channels.fetch(order.channelId).catch(() => null);
+  if (!channel?.isTextBased() || !("messages" in channel)) return stored;
+
+  const live = await listTicketFiles(channel);
+  const photos = matchLiveOrderPhotos(stored, live);
+  const changed =
+    photos.length !== stored.length || photos.some((photo, i) => photo.url !== stored[i]?.url);
+  if (changed && photos.length) {
+    await db
+      .update(serviceOrdersTable)
+      .set({
+        attachmentsJson: serializeAttachments(photos),
+        attachmentCount: photos.length,
+      })
+      .where(eq(serviceOrdersTable.id, order.id))
+      .catch((err) => {
+        logger.warn({ err, orderId: order.id }, "order photo url refresh failed");
+      });
+    order.attachmentsJson = serializeAttachments(photos);
+    order.attachmentCount = photos.length;
+  }
+  const result = photos.length ? photos : stored;
+  const prev = freshPhotoCache.get(order.id);
+  freshPhotoCache.set(order.id, { at: Date.now(), photos: result, files: prev?.files });
+  return result;
+}
+
+/** Download the order's photos so the canvas can paint pixels, not a dead link. */
+export async function loadOrderPhotoFiles(
+  client: Client,
+  order: ServiceOrder
+): Promise<{ expected: number; files: { name: string; data: Buffer }[] }> {
+  const cached = freshPhotoCache.get(order.id);
+  if (cached && Date.now() - cached.at < FRESH_PHOTO_MS && cached.files) {
+    return { expected: cached.photos.length, files: cached.files };
+  }
+
+  const photos = await loadFreshOrderPhotos(client, order);
+  const again = freshPhotoCache.get(order.id);
+  if (again?.files && Date.now() - again.at < FRESH_PHOTO_MS) {
+    return { expected: photos.length, files: again.files };
+  }
+
+  const files: { name: string; data: Buffer }[] = [];
+  for (const photo of photos) {
+    const data = await downloadRemoteImage(photo.url);
+    if (!data) continue;
+    files.push({ name: safeImageName(photo.name), data });
+  }
+  const prev = freshPhotoCache.get(order.id);
+  freshPhotoCache.set(order.id, {
+    at: prev?.at ?? Date.now(),
+    photos: prev?.photos ?? photos,
+    files,
+  });
+  return { expected: photos.length, files };
+}
+
 export async function buildOrderPayload(
   client: Client,
   clan: Clan,
@@ -1023,6 +1225,8 @@ export async function buildOrderPayload(
   embeds: EmbedBuilder[];
   files?: AttachmentBuilder[];
   components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+  photosExpected: number;
+  photosBaked: number;
 }> {
   const member = await getMember(clan.guildId, order.customerId);
   const discordUser = await client.users.fetch(order.customerId).catch(() => null);
@@ -1056,10 +1260,8 @@ export async function buildOrderPayload(
     meta?.targetMaxed !== undefined ? meta.targetMaxed : parsed.targetMaxed;
 
   const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
-  const photoUrls = parseAttachmentsJson(order.attachmentsJson)
-    .filter((a) => isImageAttachment(a))
-    .slice(0, SERVICE_ORDER_MAX_PHOTOS)
-    .map((a) => a.url);
+  const loadedPhotos = await loadOrderPhotoFiles(client, order);
+  const photoPngs = loadedPhotos.files.map((photo) => photo.data.toString("base64"));
   let files: AttachmentBuilder[] | undefined;
   try {
     const png = await renderOffThread("serviceOrderCard", {
@@ -1086,7 +1288,8 @@ export async function buildOrderPayload(
       speedLabel,
       quoteLine,
       tags: displayTags,
-      photoUrls,
+      photoUrls: photoPngs.length ? [] : undefined,
+      photoPngs,
       orderedAt: order.createdAt.toLocaleString("en-US", {
         month: "short",
         day: "numeric",
@@ -1158,7 +1361,34 @@ export async function buildOrderPayload(
     embeds: [embed],
     files,
     components: componentsForAudience(order.id, audience, status),
+    photosExpected: loadedPhotos.expected,
+    photosBaked: loadedPhotos.files.length,
   };
+}
+
+/**
+ * Redraw every order canvas that still has saved photos. Runs once after the
+ * bot is ready so live tickets pick up current Discord file links.
+ */
+export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void> {
+  const rows = await db
+    .select()
+    .from(serviceOrdersTable)
+    .where(gt(serviceOrdersTable.attachmentCount, 0));
+  let refreshed = 0;
+  for (const order of rows) {
+    if (!order.ticketMessageId && !order.boardMessageId) continue;
+    const clan = await getClan(order.guildId);
+    if (!clan) continue;
+    try {
+      await refreshOrderMessages(client, clan, order);
+      refreshed += 1;
+    } catch (err) {
+      logger.warn({ err, orderId: order.id }, "order photo canvas rehydrate failed");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  logger.info({ refreshed, scanned: rows.length }, "Rehydrated order canvases from ticket photos");
 }
 
 export async function refreshOrderMessages(
@@ -1187,8 +1417,28 @@ export async function refreshOrderMessages(
         content: audience === "ticket" ? content : `**${order.publicId}** · ${queueHeadline(order)}`,
         embeds: payload.embeds,
         components: payload.components,
-        files: payload.files,
       };
+      const keepCanvas = shouldKeepExistingOrderCanvas({
+        photosExpected: payload.photosExpected,
+        photosBaked: payload.photosBaked,
+        existingFiles: msg.attachments.size,
+      });
+      if (keepCanvas) {
+        const canvasFile =
+          [...msg.attachments.values()].find((file) => isGeneratedOrderCanvas(file.name)) ??
+          [...msg.attachments.values()].find((file) =>
+            isImageAttachment({ name: file.name, contentType: file.contentType })
+          );
+        if (canvasFile?.name) payload.embeds[0]?.setImage(`attachment://${canvasFile.name}`);
+        editPayload.attachments = [...msg.attachments.values()].map((file) => ({ id: file.id }));
+        logger.warn(
+          { orderId: order.id, expected: payload.photosExpected },
+          "Left the existing order canvas in place; photo files could not be downloaded"
+        );
+      } else if (payload.files?.length) {
+        editPayload.files = payload.files;
+        editPayload.attachments = [];
+      }
       await msg.edit(editPayload);
     } catch (err) {
       logger.warn({ err, orderId: order.id, channelId }, "order message refresh failed");
