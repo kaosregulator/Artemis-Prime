@@ -19,6 +19,8 @@ import {
   parseServiceOrderDetails,
   queuePlaceMessage,
   matchLiveOrderPhotos,
+  discordAttachmentFallbacks,
+  shouldKeepExistingOrderCanvas,
   parseTagsField,
   parseLevelInput,
   parseCurrentAndTargetLevels,
@@ -305,6 +307,33 @@ describe("serviceOrderHelpers", () => {
     ];
     const matched = matchLiveOrderPhotos(stored, live, 1);
     assert.equal(matched[0]?.name, "order.jpg");
+  });
+
+  it("tries the Discord media host when the CDN link is the one we have", () => {
+    const url = "https://cdn.discordapp.com/attachments/9/shot.png?ex=1&hm=abc";
+    assert.deepEqual(discordAttachmentFallbacks(url), [
+      url,
+      "https://media.discordapp.net/attachments/9/shot.png?ex=1&hm=abc",
+    ]);
+  });
+
+  it("keeps a posted canvas when the new render could not load its photos", () => {
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 0, existingFiles: 1 }),
+      true
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 2, existingFiles: 1 }),
+      false
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 0, photosBaked: 0, existingFiles: 1 }),
+      false
+    );
+    assert.equal(
+      shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 0, existingFiles: 0 }),
+      false
+    );
   });
 
   it("parses free-text tags without a fixed list", () => {

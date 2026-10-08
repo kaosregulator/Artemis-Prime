@@ -2,7 +2,7 @@
  * Service-order card — live tracking snapshot for ticket + orders board.
  * Clean layout: status + big quote up top, order facts, large uncropped photos.
  */
-import type { SKRSContext2D } from "@napi-rs/canvas";
+import { loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import {
   createSurface,
   paintBackground,
@@ -45,6 +45,8 @@ export interface ServiceOrderCardView {
   tags?: string[] | null;
   /** Order photos shown large on the card (letterboxed, not cropped). */
   photoUrls?: string[] | null;
+  /** Photo bytes already downloaded. These are drawn as-is, with no second fetch. */
+  photoPngs?: string[] | null;
 }
 
 const TONE: Record<ServiceOrderCardView["statusTone"], { bg: string; fg: string }> = {
@@ -56,7 +58,8 @@ const TONE: Record<ServiceOrderCardView["statusTone"], { bg: string; fg: string 
 };
 
 export async function renderServiceOrderCard(view: ServiceOrderCardView): Promise<Buffer> {
-  const photos = (view.photoUrls ?? []).slice(0, 5);
+  const baked = (view.photoPngs ?? []).filter(Boolean).slice(0, 5);
+  const photos = baked.length ? baked : (view.photoUrls ?? []).slice(0, 5);
   const photoRows = photos.length ? Math.ceil(photos.length / 3) : 0;
   const photoBlockH = photos.length ? 28 + photoRows * 210 : 0;
   const notesBody = stripStructuredDetailLines(view.details);
@@ -267,7 +270,9 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
       const row = Math.floor(i / 3);
       const pxPhoto = 56 + col * (thumbW + gap);
       const pyPhoto = infoY + row * (thumbH + gap);
-      const img = await fetchAvatar(photos[i]!, 10_000);
+      const img = baked.length
+        ? await loadImage(Buffer.from(photos[i]!, "base64")).catch(() => null)
+        : await fetchAvatar(photos[i]!, 10_000);
       ctx.save();
       roundThumb(ctx, pxPhoto, pyPhoto, thumbW, thumbH, 12);
       ctx.clip();

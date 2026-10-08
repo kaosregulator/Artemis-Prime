@@ -544,6 +544,36 @@ export function matchLiveOrderPhotos(
   return out;
 }
 
+/** Try the media host when the CDN host rejects the same signed link. */
+export function discordAttachmentFallbacks(url: string): string[] {
+  const out = [url];
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "cdn.discordapp.com") {
+      parsed.hostname = "media.discordapp.net";
+      out.push(parsed.toString());
+    } else if (parsed.hostname === "media.discordapp.net") {
+      parsed.hostname = "cdn.discordapp.com";
+      out.push(parsed.toString());
+    }
+  } catch {
+    /* not a URL */
+  }
+  return out;
+}
+
+/**
+ * A posted canvas already has its pixels. Replace that file only when the new
+ * render actually has the photos, or when the order never had any.
+ */
+export function shouldKeepExistingOrderCanvas(opts: {
+  photosExpected: number;
+  photosBaked: number;
+  existingFiles: number;
+}): boolean {
+  return opts.photosExpected > 0 && opts.photosBaked === 0 && opts.existingFiles > 0;
+}
+
 export function starBar(n: number, max = 5): string {
   const filled = Math.max(0, Math.min(max, Math.round(n)));
   return "★".repeat(filled) + "☆".repeat(max - filled);
