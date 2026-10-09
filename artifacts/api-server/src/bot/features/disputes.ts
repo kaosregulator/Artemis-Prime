@@ -101,33 +101,30 @@ export async function buildDisputePicker(
     };
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle("How to dispute")
-    .setDescription(
-      "Staff answer in a private channel. Resolving a dispute does not remove the warning by itself."
-    )
-    .addFields(
-      { name: "1  Type", value: "Warning, record, or a role action.", inline: true },
-      { name: "2  Explain", value: "Say what happened, in your own words.", inline: true },
-      { name: "3  Evidence", value: "Attach a screenshot from your device.", inline: true },
-      { name: "4  Send", value: "Run **/dispute**. That opens the channel.", inline: true }
-    );
+  const { disputeHowToV2, simpleV2Panel } = await import("../ui/v2/commonPanels");
   if (warns.length) {
-    embed.addFields({
-      name: "Your active warnings",
-      value: warns
-        .slice(0, 5)
-        .map((w) => `**#${w.id}**`)
-        .join("  ·  "),
-    });
+    const ids = warns
+      .slice(0, 5)
+      .map((w) => `**#${w.id}**`)
+      .join("  ·  ");
+    return {
+      ...simpleV2Panel({
+        title: "How to dispute",
+        body: [
+          "Staff answer in a private channel. Resolving a dispute does **not** remove the warning by itself.",
+          "",
+          "**1** Open **/dispute**",
+          "**2** Pick type + explain",
+          "**3** Attach evidence from your device",
+          "**4** Wait for staff in the private ticket",
+          "",
+          `**Your active warnings** ${ids}`,
+        ].join("\n"),
+      }),
+      content: "",
+    } as BaseMessageOptions & { content: string };
   }
-
-  return {
-    content: `Dispute steps for **${clan.clanName}**.`,
-    embeds: [embed],
-    components: [],
-  };
+  return { ...disputeHowToV2(), content: "" } as BaseMessageOptions & { content: string };
 }
 
 /** /dispute — open a private dispute ticket with optional native attachment. */
@@ -321,24 +318,10 @@ function disputeLine(d: Dispute): string {
 
 export async function buildDisputeReview(clan: Clan): Promise<BaseMessageOptions> {
   const open = await listDisputes(clan.guildId, "open", 25);
-  const embed = new EmbedBuilder()
-    .setColor(open.length ? 0xfaa61a : 0x3ba55d)
-    .setTitle(`Disputes — ${clan.clanName}`)
-    .setDescription(
-      clipEmbed(open.length ? `**${open.length} open**\n${open.map(disputeLine).join("\n")}` : "No open disputes.")
-    )
-    .addFields(
-      { name: "1  Open", value: "Pick one from the menu.", inline: true },
-      { name: "2  Work it", value: "Use its private channel.", inline: true },
-      { name: "3  Finish", value: "Resolve, reject, or close there.", inline: true }
-    )
-    .setFooter({ text: "Tickets stay as they are. Removing a warning is a separate button." });
-
-  const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
-  if (open.length) {
-    rows.push(
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new StringSelectMenuBuilder()
+  const { disputeReviewListV2 } = await import("../ui/v2/commonPanels");
+  const select =
+    open.length > 0
+      ? new StringSelectMenuBuilder()
           .setCustomId(DISPUTE_REVIEW_PICK)
           .setPlaceholder("Jump to a dispute…")
           .addOptions(
@@ -348,10 +331,12 @@ export async function buildDisputeReview(clan: Clan): Promise<BaseMessageOptions
               value: String(d.id),
             }))
           )
-      )
-    );
-  }
-  return { embeds: [embed], components: rows };
+      : null;
+  return disputeReviewListV2({
+    clanName: clan.clanName,
+    openLines: open.map(disputeLine),
+    select,
+  });
 }
 
 /** /disputes — staff list of open tickets. */
@@ -381,48 +366,40 @@ export async function handleDisputeReviewSelect(interaction: StringSelectMenuInt
     return;
   }
   const evidence = parseEvidence(d.evidenceJson);
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`⚖️ Dispute #${d.id} — ${d.username}`)
-    .setDescription(d.reason.slice(0, 4000))
-    .addFields(
-      { name: "Status", value: STATUS_BADGE[d.status] ?? d.status, inline: true },
-      { name: "Type", value: d.disputeType, inline: true },
-      {
-        name: "Channel",
-        value: d.channelId ? `<#${d.channelId}>` : "_none_",
-        inline: true,
-      },
-      ...(evidence.length
-        ? [
-            {
-              name: "Evidence",
-              value: evidence.map((e) => `[${e.name}](${e.url})`).join("\n").slice(0, 1024),
-            },
-          ]
-        : [])
-    );
-
+  const { disputeTicketV2 } = await import("../ui/v2/commonPanels");
+  const { actionRow, v2Button } = await import("../ui/v2/primitives");
+  const { ButtonStyle: BS } = await import("discord.js");
   const rows = [
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(disputeRemoveWarning(d.id))
-        .setLabel("Remove linked warning")
-        .setStyle(ButtonStyle.Danger)
-        .setDisabled(!d.warningId),
-      new ButtonBuilder()
-        .setCustomId(disputeMember(d.userId))
-        .setLabel("View member")
-        .setStyle(ButtonStyle.Primary)
+    actionRow(
+      v2Button({
+        customId: disputeRemoveWarning(d.id),
+        label: "Remove linked warning",
+        style: BS.Danger,
+        disabled: !d.warningId,
+      }),
+      v2Button({
+        customId: disputeMember(d.userId),
+        label: "View member",
+        style: BS.Primary,
+      })
     ),
   ];
-
+  const evidenceLine = evidence.length
+    ? evidence.map((e) => `[${e.name}](${e.url})`).join("\n").slice(0, 800)
+    : null;
   await interaction.followUp({
-    content: d.channelId
-      ? `Open <#${d.channelId}> to Resolve / Reject / Close.`
-      : "This dispute has no channel — use the buttons below if needed.",
-    embeds: [embed],
-    components: rows,
+    ...disputeTicketV2({
+      clanName: clan.clanName,
+      disputeId: d.id,
+      memberId: d.userId,
+      typeLabel: d.disputeType,
+      status: STATUS_BADGE[d.status] ?? d.status,
+      reason:
+        d.reason.slice(0, 1800) +
+        (d.channelId ? `\n\nOpen <#${d.channelId}> to Resolve / Reject / Close.` : "") +
+        (evidenceLine ? `\n\n**Evidence**\n${evidenceLine}` : ""),
+      rows,
+    }),
     flags: 64,
   });
 }

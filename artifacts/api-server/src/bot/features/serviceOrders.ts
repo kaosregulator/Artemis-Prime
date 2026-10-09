@@ -1165,7 +1165,7 @@ async function runViewPics(interaction: ButtonInteraction, orderId: number) {
     await interaction.editReply({
       content: loaded.expected
         ? `📷 **${order.publicId}** still lists **${loaded.expected}** photo(s), but the saved Discord link no longer opens and the ticket does not have the file anymore.`
-        : "📷 No photos on this order yet. Upload images in the ticket, then staff can use **Sync Files**.",
+        : "📷 No photos on this order yet. Photos from the place-order form post into the ticket and appear on the order panel.",
     });
     return;
   }
@@ -1480,6 +1480,8 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
     return;
   }
 
+  // Legacy Sync Files button on old board messages — photos now arrive via
+  // place-order submit and show on the panel automatically.
   if (action === "syncFiles") {
     await runSyncFiles(interaction, orderId);
     return;

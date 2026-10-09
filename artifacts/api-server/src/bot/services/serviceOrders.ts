@@ -83,7 +83,6 @@ import {
   svcQueue,
   svcUp,
   svcDown,
-  svcSyncFiles,
   svcQuickReply,
   svcCustomerCancel,
   svcRequestDelete,
@@ -935,7 +934,7 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
       new ButtonBuilder().setCustomId(svcUp(orderId)).setLabel("Move Up").setEmoji("⬆️").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(svcDown(orderId)).setLabel("Move Down").setEmoji("⬇️").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(svcQueue(orderId)).setLabel("To Queue").setEmoji("🔄").setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(svcSyncFiles(orderId)).setLabel("Sync Files").setEmoji("📎").setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(svcViewPics(orderId)).setLabel("View Pics").setEmoji("📷").setStyle(ButtonStyle.Primary)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
@@ -1406,6 +1405,11 @@ export async function buildOrderPayload(
       ? audiencePingContent(order)
       : `**${order.publicId}** · ${queueHeadline(order)}`;
 
+  const photoUrls = parseAttachmentsJson(order.attachmentsJson)
+    .filter((item) => isImageAttachment(item))
+    .map((item) => item.url)
+    .slice(0, 5);
+
   const v2 = buildServiceOrderV2Panel({
     order,
     audience,
@@ -1415,6 +1419,7 @@ export async function buildOrderPayload(
     vehicleText: vehicleText || null,
     itemNoun,
     canvasPng,
+    photoUrls,
     mentionContent: audience === "ticket" ? mentionContent : null,
   });
 

@@ -286,14 +286,39 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           categoryLabel,
           clan.clanLogoUrl
         );
-        await channel.send({
-          content:
-            `⚠️ <@${target.id}> — you missed your ${noun}. This is a warning` +
-            `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
-            `If this is wrong, run \`${DISPUTE_COMMAND}\`.`,
-          ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
-          allowedMentions: { users: [target.id] },
-        });
+        const ping =
+          `⚠️ <@${target.id}> — you missed your ${noun}. This is a warning` +
+          `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
+          `If this is wrong, run \`${DISPUTE_COMMAND}\`.`;
+        if (card) {
+          const { asCanvasHubV2 } = await import("../ui/v2/hubChrome");
+          const { V2_ACCENT } = await import("../ui/v2/primitives");
+          await channel.send({
+            content: ping,
+            allowedMentions: { users: [target.id] },
+          });
+          await channel.send(
+            asCanvasHubV2(
+              { files: [warningAttachment(card)] },
+              { title: "Activity warning", accent: V2_ACCENT.danger }
+            )
+          );
+        } else {
+          const { warningNoticeV2 } = await import("../ui/v2/commonPanels");
+          await channel.send({
+            content: ping,
+            allowedMentions: { users: [target.id] },
+          });
+          await channel.send(
+            warningNoticeV2({
+              title: "Activity warning",
+              body: fallbackEmbed.data.description ?? memberFacingReason,
+              footer: warningNumber
+                ? `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}`
+                : null,
+            })
+          );
+        }
         channelPosted = true;
       }
     } catch (err) {
@@ -311,17 +336,35 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       categoryLabel,
       clan.clanLogoUrl
     );
-    dmSent = await target
-      .send(
-        card
-          ? {
-              content: memberWarningDmContent(memberFacingReason, warningNumber, categoryLabel),
-              files: [warningAttachment(card)],
-            }
-          : { embeds: [dmEmbed] }
-      )
-      .then(() => true)
-      .catch(() => false);
+    try {
+      await target.send({
+        content: memberWarningDmContent(memberFacingReason, warningNumber, categoryLabel),
+      });
+      if (card) {
+        const { asCanvasHubV2 } = await import("../ui/v2/hubChrome");
+        const { V2_ACCENT } = await import("../ui/v2/primitives");
+        await target.send(
+          asCanvasHubV2(
+            { files: [warningAttachment(card)] },
+            { title: "Activity warning", accent: V2_ACCENT.danger }
+          )
+        );
+      } else {
+        const { warningNoticeV2 } = await import("../ui/v2/commonPanels");
+        await target.send(
+          warningNoticeV2({
+            title: "Activity warning",
+            body: dmEmbed.data.description ?? memberFacingReason,
+            footer: warningNumber
+              ? `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}`
+              : null,
+          })
+        );
+      }
+      dmSent = true;
+    } catch {
+      dmSent = false;
+    }
   }
 
   const delivery =

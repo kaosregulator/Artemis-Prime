@@ -32,7 +32,6 @@ import {
   svcQueue,
   svcUp,
   svcDown,
-  svcSyncFiles,
   svcQuickReply,
   svcCustomerCancel,
   svcRequestDelete,
@@ -56,8 +55,19 @@ import {
 } from "./primitives";
 import {
   ActionRowBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
   StringSelectMenuBuilder,
 } from "discord.js";
+
+function photoGallery(urls: string[]): MediaGalleryBuilder | null {
+  const items = urls
+    .filter((u) => /^https?:\/\//i.test(u))
+    .slice(0, 5)
+    .map((url) => new MediaGalleryItemBuilder().setURL(url));
+  if (!items.length) return null;
+  return new MediaGalleryBuilder().addItems(...items);
+}
 
 function statusAccent(status: ServiceOrderStatus): V2Accent {
   switch (status) {
@@ -88,7 +98,7 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
       v2Button({ customId: svcUp(orderId), label: "Move Up", emoji: "⬆️" }),
       v2Button({ customId: svcDown(orderId), label: "Move Down", emoji: "⬇️" }),
       v2Button({ customId: svcQueue(orderId), label: "To Queue", emoji: "🔄" }),
-      v2Button({ customId: svcSyncFiles(orderId), label: "Sync Files", emoji: "📎" })
+      v2Button({ customId: svcViewPics(orderId), label: "View Pics", emoji: "📷", style: ButtonStyle.Primary })
     ),
     actionRow(
       v2Button({ customId: svcReject(orderId), label: "Reject", emoji: "❌", style: ButtonStyle.Danger }),
@@ -223,6 +233,8 @@ export interface OrderPanelInput {
   itemNoun?: string;
   /** Optional canvas PNG — attached when photos/visual card still useful. */
   canvasPng?: Buffer | null;
+  /** Live photo CDN URLs (shown in a Media Gallery under the card). */
+  photoUrls?: string[];
   /** Reuse an already-uploaded attachment name (no re-upload). */
   existingAttachmentName?: string | null;
   /** Mention line for ticket audience (customer ping). */
@@ -285,11 +297,15 @@ export function buildServiceOrderV2Panel(input: OrderPanelInput): MessageCreateO
     ...(headline ? [textDisplay(headline)] : []),
     ...(detailLines ? [separator(), textDisplay(detailLines)] : []),
     ...(order.attachmentCount > 0
-      ? [textDisplay(`📷 **${order.attachmentCount}** photo${order.attachmentCount === 1 ? "" : "s"} on file`)]
+      ? [textDisplay(`📷 **${order.attachmentCount}** photo${order.attachmentCount === 1 ? "" : "s"} · use **View Pics** for full size`)]
       : []),
     ...(galleryName
       ? [separator(), attachmentGallery(galleryName, `${order.publicId} order card`)]
       : []),
+    ...(() => {
+      const g = photoGallery(input.photoUrls ?? []);
+      return g ? [separator(), g] : [];
+    })(),
     ...rowsForAudience(order.id, audience, status),
   ];
 

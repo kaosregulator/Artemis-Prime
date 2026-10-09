@@ -1,11 +1,10 @@
 import {
-  AttachmentBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { getClan, isOfficer } from "../services/config";
 import { removeWarning } from "../services/warnings";
-import { renderOffThread } from "../canvas/render-pool";
+import { helpPanelV2, statePanel } from "../ui/v2/commonPanels";
 
 /**
  * /help and the warning-removal select handler. The `/warnings` command itself
@@ -13,7 +12,7 @@ import { renderOffThread } from "../canvas/render-pool";
  * remove-warning dropdown it renders is still handled here under NS.warn.
  */
 
-/** /help — how the officer-managed workflow works. */
+/** /help — how the officer-managed workflow works (Components V2). */
 export async function handleHelp(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) {
     await interaction.reply({ content: "This command only works inside a server.", flags: 64 });
@@ -25,42 +24,14 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   const game = clan?.gameName || "your game";
   const officer = isOfficer(interaction.member, clan ?? null);
 
-  const sections = [
-    {
-      title: "Members",
-      accent: "#2e9e57",
-      lines: ["Check yourself", "Open /warnings. A wrong warning goes through /dispute."],
-    },
-    {
-      title: "Messages",
-      accent: "#c9820a",
-      lines: officer
-        ? ["Remind or warn", "/xpwarn sends the message. /warnboard ranks who has the most."]
-        : ["Officers message you", "A reminder is a nudge. A warning means the activity was missed."],
-    },
-    {
-      title: "Awards",
-      accent: "#3f51e0",
-      lines: ["Clan points", "/leaderboard is that award. It is separate from warnings."],
-    },
-    {
-      title: officer ? "Setup" : "Tools",
-      accent: "#0e9cbb",
-      lines: officer
-        ? ["Your server", "/setup sets the role, channels, and warning image. /link reads the Bloxlink nick."]
-        : ["Roblox tools", "/roblox, /scout, and /market. Officers use /link."],
-    },
-  ];
-
-  const png = await renderOffThread("helpCard", {
-    communityName: clan?.clanName ?? "Clan",
-    activityName: activity,
-    gameName: game,
-    sections,
-  });
-  await interaction.editReply({
-    files: [new AttachmentBuilder(png, { name: "help.png" })],
-  });
+  await interaction.editReply(
+    helpPanelV2({
+      clanName: clan?.clanName ?? "Clan",
+      activityName: activity,
+      gameName: game,
+      officer,
+    }) as Parameters<typeof interaction.editReply>[0]
+  );
 }
 
 /** Handle removal selection from /warnings. */
@@ -69,7 +40,11 @@ export async function handleWarnRemoveSelect(interaction: StringSelectMenuIntera
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan || !isOfficer(interaction.member, clan)) {
-    await interaction.editReply({ content: "Only officers can remove warnings." });
+    await interaction.editReply(
+      statePanel({ kind: "denied", body: "Only officers can remove warnings." }) as Parameters<
+        typeof interaction.editReply
+      >[0]
+    );
     return;
   }
   const warningId = Number(interaction.values[0]);
@@ -80,7 +55,10 @@ export async function handleWarnRemoveSelect(interaction: StringSelectMenuIntera
     moderatorId: interaction.user.id,
     moderatorUsername: interaction.user.username,
   });
-  await interaction.editReply({
-    content: removed ? `✅ Removed warning #${warningId}.` : "That warning was already removed.",
-  });
+  await interaction.editReply(
+    statePanel({
+      kind: removed ? "success" : "warning",
+      body: removed ? `Removed warning #${warningId}.` : "That warning was already removed.",
+    }) as Parameters<typeof interaction.editReply>[0]
+  );
 }

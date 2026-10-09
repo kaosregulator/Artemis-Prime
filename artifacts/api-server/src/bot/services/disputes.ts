@@ -415,15 +415,28 @@ export async function openDisputeTicket(
   const staffPing = staffRoles.map((r) => `<@&${r}>`).join(" ");
   const introPing = [staffPing, `<@${user.id}>`].filter(Boolean).join(" · ");
   try {
+    // Separate ping — Components V2 cannot mix content mentions with the panel.
+    await channel
+      .send({
+        content: introPing,
+        allowedMentions: { users: [user.id], roles: staffRoles },
+      })
+      .catch(() => null);
+
+    const { disputeTicketV2 } = await import("../ui/v2/commonPanels");
+    const type = (row.disputeType as DisputeType) || "warning";
     await channel.send({
-      content: introPing,
-      embeds: [disputeEmbed({ clan, dispute: row, warning })],
+      ...disputeTicketV2({
+        clanName: clan.clanName,
+        disputeId: row.id,
+        memberId: row.userId,
+        typeLabel: DISPUTE_TYPE_LABEL[type] ?? type,
+        status: "Open",
+        reason: row.reason,
+        warningLine: warning ? `#${warning.id} — ${warning.reason.slice(0, 200)}` : null,
+        rows: [staffActionRow(row.id)],
+      }),
       files,
-      components: [staffActionRow(row.id)],
-      allowedMentions: {
-        users: [user.id],
-        roles: staffRoles,
-      },
     });
   } catch (err) {
     logger.warn({ err, channelId: channel.id }, "Dispute channel intro post failed");
