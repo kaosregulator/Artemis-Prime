@@ -3,6 +3,12 @@
  *
  * V2 messages must set MessageFlags.IsComponentsV2 and must NOT mix
  * content / embeds / poll / stickers. Keep business logic out of this module.
+ *
+ * Important: discord.js MessagePayload.makeContent() coerces `content: null` →
+ * `""`. Sending that empty string with IsComponentsV2 trips Discord error
+ * 50035 (MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2). When converting
+ * a legacy message to V2, clear content/embeds in a separate edit first — see
+ * editMessageAsV2().
  */
 import {
   ActionRowBuilder,
@@ -19,6 +25,7 @@ import {
   TextDisplayBuilder,
   ThumbnailBuilder,
   type ButtonComponentData,
+  type Message,
   type MessageActionRowComponentBuilder,
   type MessageCreateOptions,
   type MessageEditOptions,
@@ -183,13 +190,79 @@ export function v2Edit(opts: {
   files?: MessageEditOptions["files"];
   /** When true, clear previous attachments before applying new files. */
   clearAttachments?: boolean;
+  /** Keep existing attachments by id (no re-upload). */
+  attachments?: MessageEditOptions["attachments"];
 }): MessageEditOptions & { flags: number } {
-  return {
+  const payload: MessageEditOptions & { flags: number } = {
     flags: V2_FLAGS,
     components: opts.components,
     ...(opts.files ? { files: opts.files } : {}),
-    ...(opts.clearAttachments ? { attachments: [] } : {}),
+    ...(opts.clearAttachments
+      ? { attachments: [] }
+      : opts.attachments
+        ? { attachments: opts.attachments }
+        : {}),
   };
+  return stripLegacyMessageFields(payload);
+}
+
+/** Drop top-level content/embeds/poll/stickers so they never ride along with V2. */
+export function stripLegacyMessageFields<T extends object>(payload: T): T {
+  const {
+    content: _content,
+    embeds: _embeds,
+    poll: _poll,
+    stickers: _stickers,
+    sticker_ids: _stickerIds,
+    ...rest
+  } = payload as T & {
+    content?: unknown;
+    embeds?: unknown;
+    poll?: unknown;
+    stickers?: unknown;
+    sticker_ids?: unknown;
+  };
+  return rest as T;
+}
+
+function messageNeedsLegacyClear(message: Message): boolean {
+  if (message.flags.has(MessageFlags.IsComponentsV2)) return false;
+  return (
+    Boolean(message.content) ||
+    message.embeds.length > 0 ||
+    message.stickers.size > 0
+  );
+}
+
+/**
+ * Edit a channel message into (or within) Components V2 safely.
+ *
+ * Converting legacy embed/content messages requires a clear pass first —
+ * Discord demands content/embeds reset when setting IsComponentsV2, but
+ * discord.js cannot send `content: null` in the same payload as that flag.
+ */
+export async function editMessageAsV2(
+  message: Message,
+  opts: MessageEditOptions
+): Promise<Message> {
+  const safe = stripLegacyMessageFields({ ...opts, flags: V2_FLAGS });
+  const replacingFiles = Array.isArray(safe.files) && safe.files.length > 0;
+
+  if (messageNeedsLegacyClear(message)) {
+    const keepAttachments =
+      safe.attachments ??
+      (replacingFiles
+        ? []
+        : [...message.attachments.values()].map((file) => ({ id: file.id })));
+    await message.edit({
+      content: null,
+      embeds: [],
+      components: [],
+      attachments: keepAttachments,
+    });
+  }
+
+  return message.edit(safe as MessageEditOptions);
 }
 
 /** Format helpers shared across V2 surfaces. */

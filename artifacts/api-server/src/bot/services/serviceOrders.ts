@@ -30,6 +30,7 @@ import {
   type MessageCreateOptions,
 } from "discord.js";
 import { buildServiceOrderV2Panel, serviceOrderPanelV2 } from "../ui/v2/serviceOrderPanels";
+import { editMessageAsV2, stripLegacyMessageFields } from "../ui/v2/primitives";
 import { getClan, getMember, updateClan, isOfficer } from "./config";
 import { buildDisputeOverwrites, disputeStaffRoleIds } from "./disputeHelpers";
 import { createNotification } from "./notifications";
@@ -459,8 +460,8 @@ export async function placeServiceOrder(
           if (row.ticketMessageId) {
             try {
               const tmsg = await channel.messages.fetch(row.ticketMessageId);
-              await tmsg.edit({
-                ...refreshed.v2,
+              await editMessageAsV2(tmsg, {
+                ...stripLegacyMessageFields(refreshed.v2 as Record<string, unknown>),
                 attachments: [],
               } as MessageEditOptions);
             } catch (err) {
@@ -1590,21 +1591,21 @@ export async function refreshOrderMessages(
           mentionContent: audience === "ticket" ? audiencePingContent(order) : null,
           showRefresh: audience === "board" && orderShowsPanelRefresh(order),
         });
-        const editPayload = {
+        const editPayload = stripLegacyMessageFields({
           ...keepPanel,
           files: undefined,
           attachments: [...msg.attachments.values()].map((file) => ({ id: file.id })),
-        } as MessageEditOptions;
+        } as Record<string, unknown>) as MessageEditOptions;
         logger.warn(
           { orderId: order.id, expected: payload.photosExpected, kept: canvasFile?.name ?? null },
           "Left the existing order canvas in place; photo files could not be downloaded"
         );
-        await msg.edit(editPayload);
+        await editMessageAsV2(msg, editPayload);
         return;
       }
 
-      await msg.edit({
-        ...payload.v2,
+      await editMessageAsV2(msg, {
+        ...stripLegacyMessageFields(payload.v2 as Record<string, unknown>),
         ...(payload.v2.files?.length ? { attachments: [] } : {}),
       } as MessageEditOptions);
     } catch (err) {
@@ -1617,6 +1618,15 @@ export async function refreshOrderMessages(
         logger.info(
           { orderId: order.id, channelId, audience, code },
           "Cleared stale Discord refs after permanent API error"
+        );
+        return;
+      }
+      // 50035 = legacy content/embeds mixed with IsComponentsV2. editMessageAsV2
+      // should prevent this; if it still lands, don't retry-storm the process.
+      if (code === 50035) {
+        logger.warn(
+          { orderId: order.id, channelId, audience, code },
+          "Skipped order panel edit — Discord rejected legacy fields with Components V2"
         );
         return;
       }

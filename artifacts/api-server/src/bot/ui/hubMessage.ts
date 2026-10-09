@@ -19,11 +19,14 @@ export function replaceHubCard(
 
 /** Error / empty reply that also drops any stacked canvas attachments. */
 export function clearHubCard(content: string): InteractionEditReplyOptions {
+  const panel = statePanel({ kind: "error", body: content });
+  const { content: _c, embeds: _e, ...rest } = panel as typeof panel & {
+    content?: unknown;
+    embeds?: unknown;
+  };
   return {
-    ...statePanel({ kind: "error", body: content }),
+    ...rest,
     attachments: [],
-    embeds: [],
-    content: undefined,
   } as InteractionEditReplyOptions;
 }
 
