@@ -1,14 +1,10 @@
 import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
   type BaseMessageOptions,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
-  type MessageActionRowComponentBuilder,
 } from "discord.js";
 import type { Clan, Ticket } from "@workspace/db";
 import { getClan, isOfficer } from "../services/config";
@@ -16,6 +12,8 @@ import { listTickets, getTicket, updateTicket } from "../services/tickets";
 import { relative } from "../services/time";
 import { TICKET_PICK, ticketProgress, ticketResolve, ticketClose, ticketAssign, parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
+import { ticketDetailV2, ticketListV2, statePanel } from "../ui/v2/commonPanels";
+import { actionRow, v2Button } from "../ui/v2/primitives";
 
 /**
  * Tickets — a staff-only record view. No Discord channels are created; a ticket
@@ -43,17 +41,12 @@ async function guard(
     return null;
   }
   if (!isOfficer(interaction.member, clan)) {
-    const content = "Tickets are officer-only.";
-    if (deferred) await interaction.editReply({ content });
-    else await interaction.reply({ content, flags: 64 });
+    const panel = statePanel({ kind: "denied", body: "Tickets are officer-only." });
+    if (deferred) await interaction.editReply(panel as Parameters<typeof interaction.editReply>[0]);
+    else await interaction.reply({ ...panel, flags: 64 });
     return null;
   }
   return clan;
-}
-
-/** Discord rejects an embed description over 4096 characters. */
-function clipEmbed(text: string): string {
-  return text.length <= 4096 ? text : `${text.slice(0, 4093)}…`;
 }
 
 function ticketLine(t: Ticket): string {
@@ -63,23 +56,9 @@ function ticketLine(t: Ticket): string {
 
 export async function buildTicketList(clan: Clan): Promise<BaseMessageOptions> {
   const open = await listTickets(clan.guildId, "open", 25);
-  const embed = new EmbedBuilder()
-    .setColor(open.length ? 0xfaa61a : 0x3ba55d)
-    .setTitle(`Tickets — ${clan.clanName}`)
-    .setDescription(
-      clipEmbed(open.length ? `**${open.length} open**\n${open.map(ticketLine).join("\n")}` : "No open tickets.")
-    )
-    .addFields(
-      { name: "1  Assign", value: "Pick a ticket, then assign it.", inline: true },
-      { name: "2  In progress", value: "Mark it once you start.", inline: true },
-      { name: "3  Finish", value: "Resolve or close. Closing keeps the record.", inline: true }
-    );
-
-  const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
-  if (open.length) {
-    rows.push(
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new StringSelectMenuBuilder()
+  const select =
+    open.length > 0
+      ? new StringSelectMenuBuilder()
           .setCustomId(TICKET_PICK)
           .setPlaceholder("Open a ticket…")
           .addOptions(
@@ -89,10 +68,13 @@ export async function buildTicketList(clan: Clan): Promise<BaseMessageOptions> {
               value: String(t.id),
             }))
           )
-      )
-    );
-  }
-  return { embeds: [embed], components: rows };
+      : null;
+
+  return ticketListV2({
+    clanName: clan.clanName,
+    lines: open.map(ticketLine),
+    select,
+  });
 }
 
 export async function openTickets(interaction: ChatInputCommandInteraction) {
@@ -104,27 +86,26 @@ export async function openTickets(interaction: ChatInputCommandInteraction) {
 }
 
 async function ticketDetail(clan: Clan, t: Ticket): Promise<BaseMessageOptions> {
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`🎫 Ticket #${t.id} — ${t.username}`)
-    .setDescription(t.issue.slice(0, 4000))
-    .addFields(
-      { name: "Status", value: STATUS_BADGE[t.status] ?? t.status, inline: true },
-      { name: "Assigned", value: t.assignedToUsername ? `<@${t.assignedTo}>` : "_unassigned_", inline: true },
-      { name: "Opened", value: relative(t.createdAt), inline: true },
-      ...(t.relatedWarningId ? [{ name: "Warning", value: `#${t.relatedWarningId}`, inline: true }] : []),
-      ...(t.relatedDisputeId ? [{ name: "Dispute", value: `#${t.relatedDisputeId}`, inline: true }] : []),
-      ...(t.resolution ? [{ name: "Resolution", value: t.resolution.slice(0, 1024) }] : [])
-    );
   const rows = [
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(ticketAssign(t.id)).setLabel("Assign to me").setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(ticketProgress(t.id)).setLabel("In progress").setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(ticketResolve(t.id)).setLabel("Resolve").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(ticketClose(t.id)).setLabel("Close").setStyle(ButtonStyle.Danger)
+    actionRow(
+      v2Button({ customId: ticketAssign(t.id), label: "Assign to me", style: ButtonStyle.Primary }),
+      v2Button({ customId: ticketProgress(t.id), label: "In progress" }),
+      v2Button({ customId: ticketResolve(t.id), label: "Resolve", style: ButtonStyle.Success }),
+      v2Button({ customId: ticketClose(t.id), label: "Close", style: ButtonStyle.Danger })
     ),
   ];
-  return { embeds: [embed], components: rows };
+  return ticketDetailV2({
+    id: t.id,
+    username: t.username,
+    issue: t.issue,
+    status: STATUS_BADGE[t.status] ?? t.status,
+    assigned: t.assignedToUsername ? `<@${t.assignedTo}>` : "_unassigned_",
+    opened: relative(t.createdAt),
+    warning: t.relatedWarningId ? `#${t.relatedWarningId}` : null,
+    dispute: t.relatedDisputeId ? `#${t.relatedDisputeId}` : null,
+    resolution: t.resolution?.slice(0, 1024) ?? null,
+    rows,
+  });
 }
 
 export async function handleTicketSelect(interaction: StringSelectMenuInteraction) {
@@ -134,7 +115,10 @@ export async function handleTicketSelect(interaction: StringSelectMenuInteractio
   const id = Number(interaction.values[0]);
   const t = id ? await getTicket(clan.guildId, id) : null;
   if (!t) {
-    await interaction.followUp({ content: "That ticket no longer exists.", flags: 64 });
+    await interaction.followUp({
+      ...statePanel({ kind: "error", body: "That ticket no longer exists." }),
+      flags: 64,
+    });
     return;
   }
   await interaction.followUp({ ...(await ticketDetail(clan, t)), flags: 64 });
@@ -151,20 +135,66 @@ export async function handleTicketButton(interaction: ButtonInteraction) {
 
   switch (action) {
     case "assign":
-      await updateTicket({ clan, ticketId: tid, assignedTo: staff.id, assignedToUsername: staff.username, status: "in_progress", staffId: staff.id, staffUsername: staff.username });
-      await interaction.editReply({ content: `👤 Ticket #${tid} assigned to you and marked in progress.` });
+      await updateTicket({
+        clan,
+        ticketId: tid,
+        assignedTo: staff.id,
+        assignedToUsername: staff.username,
+        status: "in_progress",
+        staffId: staff.id,
+        staffUsername: staff.username,
+      });
+      await interaction.editReply(
+        statePanel({
+          kind: "success",
+          body: `Ticket #${tid} assigned to you and marked in progress.`,
+        }) as Parameters<typeof interaction.editReply>[0]
+      );
       return;
     case "progress":
-      await updateTicket({ clan, ticketId: tid, status: "in_progress", staffId: staff.id, staffUsername: staff.username });
-      await interaction.editReply({ content: `🔵 Ticket #${tid} marked in progress.` });
+      await updateTicket({
+        clan,
+        ticketId: tid,
+        status: "in_progress",
+        staffId: staff.id,
+        staffUsername: staff.username,
+      });
+      await interaction.editReply(
+        statePanel({
+          kind: "success",
+          body: `Ticket #${tid} marked in progress.`,
+        }) as Parameters<typeof interaction.editReply>[0]
+      );
       return;
     case "resolve":
-      await updateTicket({ clan, ticketId: tid, status: "resolved", staffId: staff.id, staffUsername: staff.username });
-      await interaction.editReply({ content: `✅ Ticket #${tid} resolved.` });
+      await updateTicket({
+        clan,
+        ticketId: tid,
+        status: "resolved",
+        staffId: staff.id,
+        staffUsername: staff.username,
+      });
+      await interaction.editReply(
+        statePanel({
+          kind: "success",
+          body: `Ticket #${tid} resolved.`,
+        }) as Parameters<typeof interaction.editReply>[0]
+      );
       return;
     case "close":
-      await updateTicket({ clan, ticketId: tid, status: "closed", staffId: staff.id, staffUsername: staff.username });
-      await interaction.editReply({ content: `⬛ Ticket #${tid} closed.` });
+      await updateTicket({
+        clan,
+        ticketId: tid,
+        status: "closed",
+        staffId: staff.id,
+        staffUsername: staff.username,
+      });
+      await interaction.editReply(
+        statePanel({
+          kind: "success",
+          body: `Ticket #${tid} closed.`,
+        }) as Parameters<typeof interaction.editReply>[0]
+      );
       return;
   }
 }

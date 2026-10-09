@@ -8,6 +8,27 @@ import { setOrderTrackerClient } from "./services/orderTracker";
 import { setAltBoardClient } from "./services/altBoard";
 import { startScoutAutoSnapshots } from "./services/scout";
 import { rehydrateOrderPhotoCanvases } from "./services/serviceOrders";
+import { startDiagnosticsMonitors } from "../lib/diagnostics";
+
+let memorySampleTimer: ReturnType<typeof setInterval> | null = null;
+
+function startMemorySampler(): void {
+  if (memorySampleTimer) return;
+  // Low-noise RSS/heap sample every 5 minutes — not a tight loop.
+  memorySampleTimer = setInterval(() => {
+    const m = process.memoryUsage();
+    logger.info(
+      {
+        rssMb: Math.round(m.rss / 1024 / 1024),
+        heapUsedMb: Math.round(m.heapUsed / 1024 / 1024),
+        externalMb: Math.round(m.external / 1024 / 1024),
+        arrayBuffersMb: Math.round((m.arrayBuffers ?? 0) / 1024 / 1024),
+      },
+      "Bot worker memory sample"
+    );
+  }, 5 * 60_000);
+  memorySampleTimer.unref?.();
+}
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -144,6 +165,8 @@ export function startBot() {
 
   client.once(Events.ClientReady, async (c) => {
     logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size }, "Discord bot ready");
+    startDiagnosticsMonitors();
+    startMemorySampler();
     // Give the persistent command center a live client so it can edit its
     // message in place when data changes.
     setCommandCenterClient(c);

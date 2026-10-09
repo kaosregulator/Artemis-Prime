@@ -313,6 +313,8 @@ export const svcHold = (orderId: number) => id(NS.svc, "hold", orderId);
 export const svcComplete = (orderId: number) => id(NS.svc, "complete", orderId);
 export const svcReject = (orderId: number) => id(NS.svc, "reject", orderId);
 export const svcCancel = (orderId: number) => id(NS.svc, "cancel", orderId);
+/** One-shot: upgrade ticket + board panels to Components V2, then hide itself. */
+export const svcRefreshPanel = (orderId: number) => id(NS.svc, "refreshPanel", orderId);
 export const svcQueue = (orderId: number) => id(NS.svc, "queue", orderId);
 export const svcUp = (orderId: number) => id(NS.svc, "up", orderId);
 export const svcDown = (orderId: number) => id(NS.svc, "down", orderId);

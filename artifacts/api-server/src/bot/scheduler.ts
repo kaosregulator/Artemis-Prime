@@ -2,6 +2,7 @@ import type { Client, TextBasedChannel } from "discord.js";
 import type { Clan } from "@workspace/db";
 import dayjs from "dayjs";
 import { logger } from "../lib/logger";
+import { recordSchedulerTick } from "../lib/diagnostics";
 import { activeClans } from "./services/config";
 import { localHm, weekKey } from "./services/time";
 import {
@@ -28,6 +29,11 @@ const TICK_MS = 60_000;
 // restart a window may re-fire at most once, which the per-member 20-hour
 // reminder guard absorbs.
 const firedWindows = new Set<string>();
+
+let tickRunning = false;
+let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let bootHandle: ReturnType<typeof setTimeout> | null = null;
+let started = false;
 
 function fireOnce(key: string): boolean {
   if (firedWindows.has(key)) return false;
@@ -129,78 +135,82 @@ async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string)
 }
 
 async function tick(client: Client) {
-  try {
-    const n = await expireStaleChallenges();
-    if (n > 0) logger.info({ expired: n }, "Expired stale ToD challenges");
-  } catch (err) {
-    logger.warn({ err }, "ToD expire tick failed");
-  }
-
-  let clans: Clan[] = [];
-  try {
-    clans = await activeClans();
-  } catch (err) {
-    logger.error({ err }, "Scheduler failed to load clans");
+  if (tickRunning) {
+    recordSchedulerTick({ durationMs: 0, skippedOverlap: true });
+    logger.warn("Scheduler tick skipped — previous tick still running");
     return;
   }
-
-  for (const clan of clans) {
+  tickRunning = true;
+  const startedAt = Date.now();
+  let failed = false;
+  try {
     try {
-      const hhmm = localHm(clan);
-      const dateKey = new Date().toISOString().slice(0, 10);
-      const nowDay = dayjs().tz(clan.timezone || "UTC").day();
-      const period = getTrackingPeriod(clan);
-
-      // Period reset fires first: at reset time, close the previous period
-      // before any reminder for the new period goes out.
-      //   daily  → every day at resetTime
-      //   weekly → only on weekStartDay at resetTime
-      const resetDue =
-        clan.autoWeeklyReset &&
-        hhmm === clan.resetTime &&
-        (period === "daily" || nowDay === clan.weekStartDay) &&
-        fireOnce(`${clan.guildId}:${dateKey}:reset:${periodKey(clan)}`);
-
-      if (resetDue) {
-        await runPeriodReset(client, clan);
-        continue;
-      }
-
-      const reminderTime = clan.reminderTimes[0];
-      // Daily period: fire on every configured reminder day (typically all 7).
-      // Weekly period: same reminderDays gate as before.
-      if (
-        clan.remindersEnabled &&
-        reminderTime === hhmm &&
-        clan.reminderDays.includes(nowDay) &&
-        fireOnce(`${clan.guildId}:${dateKey}:${hhmm}:remind`)
-      ) {
-        await runReminderWindow(client, clan);
-      }
-
-      // Once a day, an hour after the reminder window, flag escalations.
-      if (reminderTime && hhmm === bumpHour(reminderTime)) {
-        await runOfficerMonitoring(client, clan, dateKey);
-      }
-
-      // Timer-based warning-role clearance (owner-configured hours). Strips the
-      // role only — warning records stay for history / disputes.
-      if (clan.warningRemovalHours > 0 && new Date().getMinutes() % 10 === 0) {
-        await autoExpireWarnings(client, clan).catch(() => {});
-      }
-
-      // Requirement-based warning-role clearance: role only, never auto-delete warnings.
-      if (new Date().getMinutes() % 10 === 0) {
-        await clearWarningRolesForSatisfiedMembers(client, clan).catch(() => {});
-      }
-
-      // Keep the persistent command center honest on a slow cadence.
-      if (new Date().getMinutes() % 10 === 0) {
-        await refreshDashboardNow(clan.guildId).catch(() => {});
-      }
+      const n = await expireStaleChallenges();
+      if (n > 0) logger.info({ expired: n }, "Expired stale ToD challenges");
     } catch (err) {
-      logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");
+      logger.warn({ err }, "ToD expire tick failed");
     }
+
+    let clans: Clan[] = [];
+    try {
+      clans = await activeClans();
+    } catch (err) {
+      logger.error({ err }, "Scheduler failed to load clans");
+      failed = true;
+      return;
+    }
+
+    for (const clan of clans) {
+      try {
+        const hhmm = localHm(clan);
+        const dateKey = new Date().toISOString().slice(0, 10);
+        const nowDay = dayjs().tz(clan.timezone || "UTC").day();
+        const period = getTrackingPeriod(clan);
+
+        const resetDue =
+          clan.autoWeeklyReset &&
+          hhmm === clan.resetTime &&
+          (period === "daily" || nowDay === clan.weekStartDay) &&
+          fireOnce(`${clan.guildId}:${dateKey}:reset:${periodKey(clan)}`);
+
+        if (resetDue) {
+          await runPeriodReset(client, clan);
+          continue;
+        }
+
+        const reminderTime = clan.reminderTimes[0];
+        if (
+          clan.remindersEnabled &&
+          reminderTime === hhmm &&
+          clan.reminderDays.includes(nowDay) &&
+          fireOnce(`${clan.guildId}:${dateKey}:${hhmm}:remind`)
+        ) {
+          await runReminderWindow(client, clan);
+        }
+
+        if (reminderTime && hhmm === bumpHour(reminderTime)) {
+          await runOfficerMonitoring(client, clan, dateKey);
+        }
+
+        if (clan.warningRemovalHours > 0 && new Date().getMinutes() % 10 === 0) {
+          await autoExpireWarnings(client, clan).catch(() => {});
+        }
+
+        if (new Date().getMinutes() % 10 === 0) {
+          await clearWarningRolesForSatisfiedMembers(client, clan).catch(() => {});
+        }
+
+        if (new Date().getMinutes() % 10 === 0) {
+          await refreshDashboardNow(clan.guildId).catch(() => {});
+        }
+      } catch (err) {
+        failed = true;
+        logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");
+      }
+    }
+  } finally {
+    tickRunning = false;
+    recordSchedulerTick({ durationMs: Date.now() - startedAt, failed });
   }
 }
 
@@ -211,15 +221,34 @@ function bumpHour(hhmm: string): string {
   return `${String(hour).padStart(2, "0")}:${m}`;
 }
 
-/** Start the periodic scheduler. */
+/** Start the periodic scheduler (idempotent per process). */
 export function startScheduler(client: Client) {
+  if (started) {
+    logger.warn("XP tracking scheduler already started — skipping duplicate registration");
+    return;
+  }
+  started = true;
   logger.info("XP tracking scheduler started");
-  setTimeout(() => void tick(client), 10_000);
-  setInterval(() => void tick(client), TICK_MS);
+  bootHandle = setTimeout(() => void tick(client), 10_000);
+  intervalHandle = setInterval(() => void tick(client), TICK_MS);
+}
+
+/** Stop future ticks (active tick may finish). */
+export function stopScheduler(): void {
+  if (bootHandle) {
+    clearTimeout(bootHandle);
+    bootHandle = null;
+  }
+  if (intervalHandle) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
+  started = false;
+  logger.info("XP tracking scheduler stopped");
 }
 
 /** Exposed for tests / manual triggers. */
-export { runWeeklyReset, runPeriodReset, runReminderWindow };
+export { runWeeklyReset, runPeriodReset, runReminderWindow, tick };
 
 // weekKey is re-exported so callers logging scheduler state share one source.
 export { weekKey };

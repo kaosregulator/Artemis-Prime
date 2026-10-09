@@ -139,3 +139,24 @@ export function scoutAutoSnapshotStatus(): {
     intervalSec: Number.isFinite(intervalSec) ? intervalSec : 900,
   };
 }
+
+/** Stop background snapshots and close the SQLite store when possible. */
+export function stopScoutAutoSnapshots(): void {
+  if (scheduler?.running) {
+    try {
+      scheduler.stop();
+    } catch (err) {
+      logger.warn({ err }, "Scout scheduler stop failed");
+    }
+  }
+  scheduler = null;
+  schedulerIds = [];
+  if (store) {
+    try {
+      store.close?.();
+    } catch {
+      /* ignore */
+    }
+    store = null;
+  }
+}

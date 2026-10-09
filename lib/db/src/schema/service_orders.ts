@@ -5,6 +5,7 @@ import {
   integer,
   timestamp,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -123,7 +124,11 @@ export const serviceOrdersTable = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (t) => [uniqueIndex("service_orders_guild_public_uidx").on(t.guildId, t.publicId)]
+  (t) => [
+    uniqueIndex("service_orders_guild_public_uidx").on(t.guildId, t.publicId),
+    // Matches ensureSchema additive index — keeps drizzle-kit push aligned.
+    index("service_orders_guild_status_idx").on(t.guildId, t.status),
+  ]
 );
 
 export const insertServiceOrderSchema = createInsertSchema(serviceOrdersTable).omit({
