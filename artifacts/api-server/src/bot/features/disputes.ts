@@ -82,7 +82,7 @@ function evidenceFromAttachment(att: Attachment | null): DisputeEvidence[] {
 export async function buildDisputePicker(
   clan: Clan,
   userId: string
-): Promise<BaseMessageOptions & { content: string }> {
+): Promise<BaseMessageOptions> {
   const open = await findOpenDisputeForUser(clan.guildId, userId);
   if (open?.channelId) {
     return {
@@ -107,24 +107,22 @@ export async function buildDisputePicker(
       .slice(0, 5)
       .map((w) => `**#${w.id}**`)
       .join("  ·  ");
-    return {
-      ...simpleV2Panel({
-        title: "How to dispute",
-        body: [
-          "Staff answer in a private channel. Resolving a dispute does **not** remove the warning by itself.",
-          "",
-          "**1** Open **/dispute**",
-          "**2** Pick type + explain",
-          "**3** Attach evidence from your device",
-          "**4** Wait for staff in the private ticket",
-          "",
-          `**Your active warnings** ${ids}`,
-        ].join("\n"),
-      }),
-      content: "",
-    } as BaseMessageOptions & { content: string };
+    // V2 panels must not set top-level content (Discord 50035).
+    return simpleV2Panel({
+      title: "How to dispute",
+      body: [
+        "Staff answer in a private channel. Resolving a dispute does **not** remove the warning by itself.",
+        "",
+        "**1** Open **/dispute**",
+        "**2** Pick type + explain",
+        "**3** Attach evidence from your device",
+        "**4** Wait for staff in the private ticket",
+        "",
+        `**Your active warnings** ${ids}`,
+      ].join("\n"),
+    });
   }
-  return { ...disputeHowToV2(), content: "" } as BaseMessageOptions & { content: string };
+  return disputeHowToV2();
 }
 
 /** /dispute — open a private dispute ticket with optional native attachment. */

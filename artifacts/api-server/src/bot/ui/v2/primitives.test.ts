@@ -7,6 +7,8 @@ import {
   textDisplay,
   separator,
   v2Message,
+  v2Edit,
+  stripLegacyMessageFields,
   statePanel,
   actionRow,
   v2Button,
@@ -32,6 +34,32 @@ describe("Components V2 primitives", () => {
     // Must not mix embeds/content
     assert.equal((msg as { content?: string }).content, undefined);
     assert.equal((msg as { embeds?: unknown }).embeds, undefined);
+  });
+
+  it("strips legacy content/embeds from V2 edit payloads", () => {
+    const cleaned = stripLegacyMessageFields({
+      flags: V2_FLAGS,
+      content: "",
+      embeds: [],
+      poll: { question: { text: "x" } },
+      components: [],
+      attachments: [{ id: "1" }],
+    });
+    assert.equal("content" in cleaned, false);
+    assert.equal("embeds" in cleaned, false);
+    assert.equal("poll" in cleaned, false);
+    assert.equal(cleaned.flags, V2_FLAGS);
+    assert.deepEqual(cleaned.attachments, [{ id: "1" }]);
+
+    const edit = v2Edit({
+      components: [
+        container({ children: [textDisplay("Panel")] }),
+      ],
+      clearAttachments: true,
+    });
+    assert.equal(edit.flags, V2_FLAGS);
+    assert.equal("content" in edit, false);
+    assert.deepEqual(edit.attachments, []);
   });
 
   it("builds state panels for error/denied", () => {

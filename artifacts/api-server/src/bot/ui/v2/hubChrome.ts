@@ -104,10 +104,13 @@ export function replaceHubCardV2(
   opts?: { title?: string; subtitle?: string; accent?: V2Accent }
 ): InteractionEditReplyOptions {
   const v2 = asCanvasHubV2(payload, opts);
+  // Omit content entirely — never send ""/null with IsComponentsV2 (Discord 50035).
+  const { content: _c, embeds: _e, ...rest } = v2 as typeof v2 & {
+    content?: unknown;
+    embeds?: unknown;
+  };
   return {
-    ...v2,
-    content: undefined,
-    embeds: [],
+    ...rest,
     attachments: [],
   } as InteractionEditReplyOptions;
 }
