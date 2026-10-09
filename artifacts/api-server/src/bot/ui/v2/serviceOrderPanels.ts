@@ -29,6 +29,7 @@ import {
   svcComplete,
   svcReject,
   svcCancel,
+  svcRefreshPanel,
   svcQueue,
   svcUp,
   svcDown,
@@ -86,7 +87,30 @@ function statusAccent(status: ServiceOrderStatus): V2Accent {
   }
 }
 
-function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+function staffRows(
+  orderId: number,
+  opts?: { showRefresh?: boolean }
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  const destructive = [
+    v2Button({ customId: svcReject(orderId), label: "Reject", emoji: "❌", style: ButtonStyle.Danger }),
+    v2Button({ customId: svcCancel(orderId), label: "Cancel", emoji: "🚫", style: ButtonStyle.Danger }),
+  ];
+  // One-shot migration control — sits next to Cancel, then never comes back.
+  if (opts?.showRefresh) {
+    destructive.push(
+      v2Button({
+        customId: svcRefreshPanel(orderId),
+        label: "Refresh",
+        emoji: "✨",
+        style: ButtonStyle.Primary,
+      })
+    );
+  }
+  destructive.push(
+    v2Button({ customId: svcTranscript(orderId), label: "Transcript", emoji: "📜" }),
+    v2Button({ customId: svcDelete(orderId), label: "Delete Order", emoji: "🗑️", style: ButtonStyle.Danger })
+  );
+
   return [
     actionRow(
       v2Button({ customId: svcClaim(orderId), label: "Claim", emoji: "✅", style: ButtonStyle.Success }),
@@ -100,12 +124,7 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
       v2Button({ customId: svcQueue(orderId), label: "To Queue", emoji: "🔄" }),
       v2Button({ customId: svcViewPics(orderId), label: "View Pics", emoji: "📷", style: ButtonStyle.Primary })
     ),
-    actionRow(
-      v2Button({ customId: svcReject(orderId), label: "Reject", emoji: "❌", style: ButtonStyle.Danger }),
-      v2Button({ customId: svcCancel(orderId), label: "Cancel", emoji: "🚫", style: ButtonStyle.Danger }),
-      v2Button({ customId: svcTranscript(orderId), label: "Transcript", emoji: "📜" }),
-      v2Button({ customId: svcDelete(orderId), label: "Delete Order", emoji: "🗑️", style: ButtonStyle.Danger })
-    ),
+    actionRow(...destructive),
     actionRow(
       new StringSelectMenuBuilder()
         .setCustomId(svcQuickReply(orderId))
@@ -170,10 +189,13 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
 function rowsForAudience(
   orderId: number,
   audience: "ticket" | "board",
-  status: string
+  status: string,
+  opts?: { showRefresh?: boolean }
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   if (audience === "board") {
-    return isTerminalStatus(status) ? staffTerminalRows(orderId) : staffRows(orderId);
+    return isTerminalStatus(status)
+      ? staffTerminalRows(orderId)
+      : staffRows(orderId, { showRefresh: opts?.showRefresh });
   }
   if (isTerminalStatus(status)) return [];
   return ticketCustomerRows(orderId);
@@ -239,6 +261,8 @@ export interface OrderPanelInput {
   existingAttachmentName?: string | null;
   /** Mention line for ticket audience (customer ping). */
   mentionContent?: string | null;
+  /** Show one-shot Refresh (board only) until staff locks the new UI. */
+  showRefresh?: boolean;
 }
 
 /** Build a V2 ticket/board order panel. */
@@ -306,7 +330,7 @@ export function buildServiceOrderV2Panel(input: OrderPanelInput): MessageCreateO
       const g = photoGallery(input.photoUrls ?? []);
       return g ? [separator(), g] : [];
     })(),
-    ...rowsForAudience(order.id, audience, status),
+    ...rowsForAudience(order.id, audience, status, { showRefresh: input.showRefresh }),
   ];
 
   return v2Message({

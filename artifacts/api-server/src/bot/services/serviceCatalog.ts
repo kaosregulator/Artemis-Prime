@@ -376,6 +376,11 @@ export interface ServiceOrderMeta {
   quoteCurrencyEmoji?: string | null;
   quoteLines?: QuoteLine[];
   estimate?: boolean;
+  /**
+   * One-shot UI migration: when true, the board "Refresh panel" button is
+   * hidden. Set after staff fires Refresh (ticket + board updated to V2).
+   */
+  panelUiLocked?: boolean;
 }
 
 export function serializeOrderMeta(meta: ServiceOrderMeta): string {

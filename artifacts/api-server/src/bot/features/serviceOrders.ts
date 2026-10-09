@@ -37,6 +37,9 @@ import {
   SERVICE_ORDER_ACCESS_DENIED,
   deleteServiceOrderChannel,
   captureServiceOrderTranscript,
+  refreshOrderMessages,
+  lockOrderPanelUi,
+  orderShowsPanelRefresh,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
 import {
@@ -878,6 +881,8 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
     quoteCurrencyEmoji: quote?.currencyEmoji ?? null,
     quoteLines: quote?.lines,
     estimate: quote?.estimate ?? false,
+    // New orders already post as Components V2 — no migration Refresh needed.
+    panelUiLocked: true,
   };
 
   let attachments: { url: string; name: string; contentType: string | null; size: number }[] = [];
@@ -1041,6 +1046,61 @@ async function runStaffAction(
       `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? res.order.status}`.trim() +
       (res.order.queuePosition != null ? ` · queue #${res.order.queuePosition}` : ""),
   });
+}
+
+/**
+ * One-shot panel migration: rewrite ticket + board to Components V2, then lock
+ * so the Refresh button never appears again on this order.
+ */
+async function runRefreshPanel(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  if (!canManageServiceOrders(interaction.member, clan)) {
+    await interaction.editReply({
+      content: "Only leveling staff / officers can refresh order panels.",
+    });
+    return;
+  }
+
+  let order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+
+  if (!orderShowsPanelRefresh(order)) {
+    await interaction.editReply({
+      content: `✨ **${order.publicId}** is already on the new panel — Refresh won’t show again.`,
+    });
+    return;
+  }
+
+  try {
+    // Lock first so the rebuild omits Refresh, then rewrite ticket + board.
+    order = await lockOrderPanelUi(order);
+    await refreshOrderMessages(interaction.client, clan, order);
+    try {
+      await refreshOrderTrackerNow(clan.guildId);
+    } catch {
+      /* tracker optional */
+    }
+    await interaction.editReply({
+      content:
+        `✨ **${order.publicId}** ticket + board panels updated.\n` +
+        `The **Refresh** button is gone for this order and won’t come back.`,
+    });
+  } catch (err) {
+    logger.warn({ err, orderId }, "refresh panel failed");
+    await interaction.editReply({
+      content: "⚠️ Couldn’t refresh those panels. Try again in a moment.",
+    });
+  }
 }
 
 async function runSyncFiles(interaction: ButtonInteraction, orderId: number) {
@@ -1477,6 +1537,11 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
   const orderId = Number(String(arg ?? "").split("-")[0]);
   if (!orderId) {
     await interaction.reply({ content: "Invalid order reference.", flags: 64 });
+    return;
+  }
+
+  if (action === "refreshPanel") {
+    await runRefreshPanel(interaction, orderId);
     return;
   }
 

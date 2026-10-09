@@ -80,6 +80,7 @@ import {
   svcComplete,
   svcReject,
   svcCancel,
+  svcRefreshPanel,
   svcQueue,
   svcUp,
   svcDown,
@@ -305,8 +306,8 @@ export async function placeServiceOrder(
   const queuePosition = active.length + 1;
 
   const orderMetaJson = input.orderMeta
-    ? serializeOrderMeta(input.orderMeta)
-    : null;
+    ? serializeOrderMeta({ ...input.orderMeta, panelUiLocked: input.orderMeta.panelUiLocked ?? true })
+    : serializeOrderMeta({ panelUiLocked: true });
 
   const [created] = await db
     .insert(serviceOrdersTable)
@@ -922,7 +923,28 @@ async function notifyCustomer(
   }
 }
 
-function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+function staffRows(
+  orderId: number,
+  opts?: { showRefresh?: boolean }
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  const destructive = [
+    new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger),
+  ];
+  if (opts?.showRefresh) {
+    destructive.push(
+      new ButtonBuilder()
+        .setCustomId(svcRefreshPanel(orderId))
+        .setLabel("Refresh")
+        .setEmoji("✨")
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
+  destructive.push(
+    new ButtonBuilder().setCustomId(svcTranscript(orderId)).setLabel("Transcript").setEmoji("📜").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(svcDelete(orderId)).setLabel("Delete Order").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
+  );
+
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder().setCustomId(svcClaim(orderId)).setLabel("Claim").setEmoji("✅").setStyle(ButtonStyle.Success),
@@ -936,12 +958,7 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
       new ButtonBuilder().setCustomId(svcQueue(orderId)).setLabel("To Queue").setEmoji("🔄").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(svcViewPics(orderId)).setLabel("View Pics").setEmoji("📷").setStyle(ButtonStyle.Primary)
     ),
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(svcTranscript(orderId)).setLabel("Transcript").setEmoji("📜").setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(svcDelete(orderId)).setLabel("Delete Order").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
-    ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...destructive),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(svcQuickReply(orderId))
@@ -1013,16 +1030,43 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
 function componentsForAudience(
   orderId: number,
   audience: "ticket" | "board",
-  status: string
+  status: string,
+  opts?: { showRefresh?: boolean }
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   if (audience === "board") {
     if (isTerminalStatus(status)) return staffTerminalRows(orderId);
-    return staffRows(orderId);
+    return staffRows(orderId, { showRefresh: opts?.showRefresh });
   }
   // Ticket canvas: customer-only controls while open; after terminal, no buttons
   // (staff clean up from the orders board: Transcript / Delete Order).
   if (isTerminalStatus(status)) return [];
   return ticketCustomerRows(orderId);
+}
+
+/** Whether the one-shot Refresh button should still appear on the board. */
+export function orderShowsPanelRefresh(order: ServiceOrder): boolean {
+  if (isTerminalStatus(order.status)) return false;
+  const meta = parseOrderMeta(order.orderMetaJson);
+  return !meta?.panelUiLocked;
+}
+
+/** Persist panelUiLocked so Refresh never returns on this order. */
+export async function lockOrderPanelUi(order: ServiceOrder): Promise<ServiceOrder> {
+  const prev = parseOrderMeta(order.orderMetaJson) ?? {};
+  if (prev.panelUiLocked) return order;
+  const next: ServiceOrderMeta = { ...prev, panelUiLocked: true };
+  const orderMetaJson = serializeOrderMeta(next);
+  const [updated] = await db
+    .update(serviceOrdersTable)
+    .set({ orderMetaJson })
+    .where(eq(serviceOrdersTable.id, order.id))
+    .returning();
+  if (updated) {
+    order.orderMetaJson = orderMetaJson;
+    return updated;
+  }
+  order.orderMetaJson = orderMetaJson;
+  return order;
 }
 
 
@@ -1410,6 +1454,9 @@ export async function buildOrderPayload(
     .map((item) => item.url)
     .slice(0, 5);
 
+  const showRefresh =
+    audience === "board" && !isTerminalStatus(status) && !meta?.panelUiLocked;
+
   const v2 = buildServiceOrderV2Panel({
     order,
     audience,
@@ -1421,6 +1468,7 @@ export async function buildOrderPayload(
     canvasPng,
     photoUrls,
     mentionContent: audience === "ticket" ? mentionContent : null,
+    showRefresh,
   });
 
   return {
@@ -1428,7 +1476,7 @@ export async function buildOrderPayload(
     files: canvasPng
       ? [new AttachmentBuilder(canvasPng, { name: `order-${order.publicId}.png` })]
       : undefined,
-    components: componentsForAudience(order.id, audience, status),
+    components: componentsForAudience(order.id, audience, status, { showRefresh }),
     v2,
     photosExpected: loadedPhotos.expected,
     photosBaked: loadedPhotos.files.length,
@@ -1439,8 +1487,10 @@ export async function buildOrderPayload(
 let rehydrateInFlight: Promise<void> | null = null;
 
 /**
- * Redraw order panels that still have saved photos. Runs once after ready
- * so live tickets pick up current Discord file links. Idempotent / mutexed.
+ * After ready: refresh live order panels (and recent photo terminals).
+ * Unlocked boards get a one-shot **Refresh** button next to Cancel so staff
+ * can safely flip old embed/canvas messages to Components V2; once pressed,
+ * Refresh never returns for that order.
  */
 export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void> {
   if (rehydrateInFlight) {
@@ -1448,20 +1498,17 @@ export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void>
     return rehydrateInFlight;
   }
   rehydrateInFlight = (async () => {
-    // Only active queue + recently updated terminals with photos — avoid
-    // hammering ancient completed tickets whose channels were deleted.
     const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const rows = await db
-      .select()
-      .from(serviceOrdersTable)
-      .where(gt(serviceOrdersTable.attachmentCount, 0));
+    const rows = await db.select().from(serviceOrdersTable);
     const eligible = rows.filter((order) => {
       if (!order.ticketMessageId && !order.boardMessageId) return false;
       if (!isTerminalStatus(order.status)) return true;
-      return order.updatedAt >= cutoff;
+      // Terminal: only recently updated rows that still have photos.
+      return order.attachmentCount > 0 && order.updatedAt >= cutoff;
     });
     let refreshed = 0;
     let skippedStale = 0;
+    let withRefreshBtn = 0;
     for (const order of eligible) {
       if (!order.channelId && !order.boardChannelId) {
         skippedStale += 1;
@@ -1472,14 +1519,21 @@ export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void>
       try {
         await refreshOrderMessages(client, clan, order);
         refreshed += 1;
+        if (orderShowsPanelRefresh(order)) withRefreshBtn += 1;
       } catch (err) {
-        logger.warn({ err, orderId: order.id }, "order photo canvas rehydrate failed");
+        logger.warn({ err, orderId: order.id }, "order panel rehydrate failed");
       }
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
     logger.info(
-      { refreshed, scanned: rows.length, eligible: eligible.length, skippedStale },
-      "Rehydrated order canvases from ticket photos"
+      {
+        refreshed,
+        scanned: rows.length,
+        eligible: eligible.length,
+        skippedStale,
+        withRefreshBtn,
+      },
+      "Rehydrated live order panels (Refresh seeded where unlocked)"
     );
   })().finally(() => {
     rehydrateInFlight = null;
@@ -1534,6 +1588,7 @@ export async function refreshOrderMessages(
           canvasPng: null,
           existingAttachmentName: canvasFile?.name ?? null,
           mentionContent: audience === "ticket" ? audiencePingContent(order) : null,
+          showRefresh: audience === "board" && orderShowsPanelRefresh(order),
         });
         const editPayload = {
           ...keepPanel,
