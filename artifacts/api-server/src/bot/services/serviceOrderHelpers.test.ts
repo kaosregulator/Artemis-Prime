@@ -21,6 +21,7 @@ import {
   matchLiveOrderPhotos,
   discordAttachmentFallbacks,
   shouldKeepExistingOrderCanvas,
+  shouldReuseExistingOrderAttachments,
   parseTagsField,
   parseLevelInput,
   parseCurrentAndTargetLevels,
@@ -332,6 +333,25 @@ describe("serviceOrderHelpers", () => {
     );
     assert.equal(
       shouldKeepExistingOrderCanvas({ photosExpected: 5, photosBaked: 0, existingFiles: 0 }),
+      false
+    );
+  });
+
+  it("reuses existing Discord attachments unless forceCanvas is set", () => {
+    assert.equal(
+      shouldReuseExistingOrderAttachments({ existingFiles: 1 }),
+      true
+    );
+    assert.equal(
+      shouldReuseExistingOrderAttachments({ forceCanvas: false, existingFiles: 2 }),
+      true
+    );
+    assert.equal(
+      shouldReuseExistingOrderAttachments({ forceCanvas: true, existingFiles: 2 }),
+      false
+    );
+    assert.equal(
+      shouldReuseExistingOrderAttachments({ existingFiles: 0 }),
       false
     );
   });

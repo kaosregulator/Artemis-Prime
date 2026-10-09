@@ -574,6 +574,18 @@ export function shouldKeepExistingOrderCanvas(opts: {
   return opts.photosExpected > 0 && opts.photosBaked === 0 && opts.existingFiles > 0;
 }
 
+/**
+ * Prefer reusing Discord attachment bytes on panel refresh so we do not
+ * re-download photos or burn the sole canvas worker (keeps RSS down on small hosts).
+ * Pass forceCanvas for place/photo-update paths that must bake a new PNG.
+ */
+export function shouldReuseExistingOrderAttachments(opts: {
+  forceCanvas?: boolean;
+  existingFiles: number;
+}): boolean {
+  return !opts.forceCanvas && opts.existingFiles > 0;
+}
+
 export function starBar(n: number, max = 5): string {
   const filled = Math.max(0, Math.min(max, Math.round(n)));
   return "★".repeat(filled) + "☆".repeat(max - filled);

@@ -11,7 +11,7 @@ import {
   type ServiceKey,
   type ServiceOrderAttachment,
 } from "@workspace/db";
-import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, or } from "drizzle-orm";
 import {
   AttachmentBuilder,
   ChannelType,
@@ -64,6 +64,7 @@ import {
   matchLiveOrderPhotos,
   discordAttachmentFallbacks,
   shouldKeepExistingOrderCanvas,
+  shouldReuseExistingOrderAttachments,
   SERVICE_ORDER_MIN_PHOTOS,
   SERVICE_ORDER_MAX_PHOTOS,
 } from "./serviceOrderHelpers";
@@ -705,6 +706,7 @@ export async function applyServiceOrderAction(opts: {
         body: queueShiftBody(prev ?? null, o.queuePosition),
         queueShift: true,
       });
+      // Chrome-only: keep existing canvas bytes — queue storms must not re-bake.
       await refreshOrderMessages(opts.client, opts.clan, o);
     }
   }
@@ -839,7 +841,8 @@ export async function syncOrderAttachments(opts: {
     .returning();
 
   const row = updated ?? opts.order;
-  await refreshOrderMessages(opts.client, opts.clan, row);
+  // Photos changed — bake a fresh canvas instead of reusing stale attachment bytes.
+  await refreshOrderMessages(opts.client, opts.clan, row, { forceCanvas: true });
   return row;
 }
 
@@ -1191,12 +1194,10 @@ function safeImageName(name: string | null | undefined): string {
   return `${base}.png`;
 }
 
-const freshPhotoCache = new Map<
-  number,
-  { at: number; photos: ServiceOrderAttachment[]; files?: { name: string; data: Buffer }[] }
->();
-const FRESH_PHOTO_MS = 20_000;
-const FRESH_PHOTO_MAX = 40;
+/** URL metadata only — never retain downloaded image Buffers (RSS on small hosts). */
+const freshPhotoCache = new Map<number, { at: number; photos: ServiceOrderAttachment[] }>();
+const FRESH_PHOTO_MS = 15_000;
+const FRESH_PHOTO_MAX = 12;
 
 /** Discord permanent failures — clear stale IDs, do not retry forever. */
 const DISCORD_UNKNOWN_CHANNEL = 10003;
@@ -1304,8 +1305,7 @@ async function loadFreshOrderPhotos(
     order.attachmentCount = photos.length;
   }
   const result = photos.length ? photos : stored;
-  const prev = freshPhotoCache.get(order.id);
-  freshPhotoCache.set(order.id, { at: Date.now(), photos: result, files: prev?.files });
+  freshPhotoCache.set(order.id, { at: Date.now(), photos: result });
   return result;
 }
 
@@ -1314,29 +1314,14 @@ export async function loadOrderPhotoFiles(
   client: Client,
   order: ServiceOrder
 ): Promise<{ expected: number; files: { name: string; data: Buffer }[] }> {
-  const cached = freshPhotoCache.get(order.id);
-  if (cached && Date.now() - cached.at < FRESH_PHOTO_MS && cached.files) {
-    return { expected: cached.photos.length, files: cached.files };
-  }
-
   const photos = await loadFreshOrderPhotos(client, order);
-  const again = freshPhotoCache.get(order.id);
-  if (again?.files && Date.now() - again.at < FRESH_PHOTO_MS) {
-    return { expected: photos.length, files: again.files };
-  }
-
   const files: { name: string; data: Buffer }[] = [];
   for (const photo of photos) {
     const data = await downloadRemoteImage(photo.url);
     if (!data) continue;
     files.push({ name: safeImageName(photo.name), data });
   }
-  const prev = freshPhotoCache.get(order.id);
-  freshPhotoCache.set(order.id, {
-    at: prev?.at ?? Date.now(),
-    photos: prev?.photos ?? photos,
-    files,
-  });
+  // Do not cache Buffers — keep URL metadata only in freshPhotoCache.
   return { expected: photos.length, files };
 }
 
@@ -1390,9 +1375,10 @@ export async function buildOrderPayload(
 
   const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
 
-  // Canvas only when photos exist (or forced on create). Routine status updates
-  // use Components V2 text — avoids burning the sole render worker on text churn.
-  const shouldRenderCanvas = opts.forceCanvas || order.attachmentCount > 0;
+  // Canvas only when explicitly forced (place / photo update / staff rebuild).
+  // Routine status/queue refreshes keep existing Discord attachments instead —
+  // downloading + base64 + @napi-rs/canvas spikes RSS past 500 MB on small hosts.
+  const shouldRenderCanvas = Boolean(opts.forceCanvas);
   let loadedPhotos: { expected: number; files: { name: string; data: Buffer }[] } = {
     expected: 0,
     files: [],
@@ -1487,11 +1473,20 @@ export async function buildOrderPayload(
 
 let rehydrateInFlight: Promise<void> | null = null;
 
+/** Max panels rewritten during one boot rehydrate (chrome-only; no canvas bake). */
+const REHYDRATE_MAX_ORDERS = 40;
+/** Pause after ClientReady before touching order messages (lets Discord settle). */
+const REHYDRATE_BOOT_DELAY_MS = 20_000;
+const REHYDRATE_GAP_MS = 1_200;
+
 /**
  * After ready: refresh live order panels (and recent photo terminals).
  * Unlocked boards get a one-shot **Refresh** button next to Cancel so staff
  * can safely flip old embed/canvas messages to Components V2; once pressed,
  * Refresh never returns for that order.
+ *
+ * Intentionally chrome-only (keeps existing Discord attachments). Re-baking
+ * every photo canvas on deploy was the main RSS spike (~500 MB+) on small hosts.
  */
 export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void> {
   if (rehydrateInFlight) {
@@ -1499,18 +1494,36 @@ export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void>
     return rehydrateInFlight;
   }
   rehydrateInFlight = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, REHYDRATE_BOOT_DELAY_MS));
+
     const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const rows = await db.select().from(serviceOrdersTable);
-    const eligible = rows.filter((order) => {
-      if (!order.ticketMessageId && !order.boardMessageId) return false;
-      if (!isTerminalStatus(order.status)) return true;
-      // Terminal: only recently updated rows that still have photos.
-      return order.attachmentCount > 0 && order.updatedAt >= cutoff;
-    });
+    const terminalStatuses: ServiceOrderStatus[] = ["completed", "rejected", "cancelled"];
+    const rows = await db
+      .select()
+      .from(serviceOrdersTable)
+      .where(
+        and(
+          or(
+            isNotNull(serviceOrdersTable.ticketMessageId),
+            isNotNull(serviceOrdersTable.boardMessageId)
+          ),
+          or(
+            inArray(serviceOrdersTable.status, [...SERVICE_ORDER_QUEUE_STATUSES]),
+            and(
+              inArray(serviceOrdersTable.status, terminalStatuses),
+              gt(serviceOrdersTable.attachmentCount, 0),
+              gte(serviceOrdersTable.updatedAt, cutoff)
+            )
+          )
+        )
+      )
+      .orderBy(desc(serviceOrdersTable.updatedAt))
+      .limit(REHYDRATE_MAX_ORDERS);
+
     let refreshed = 0;
     let skippedStale = 0;
     let withRefreshBtn = 0;
-    for (const order of eligible) {
+    for (const order of rows) {
       if (!order.channelId && !order.boardChannelId) {
         skippedStale += 1;
         continue;
@@ -1518,23 +1531,25 @@ export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void>
       const clan = await getClan(order.guildId);
       if (!clan) continue;
       try {
+        // Never forceCanvas here — reuse attachment bytes; V2 text/chrome only.
         await refreshOrderMessages(client, clan, order);
         refreshed += 1;
         if (orderShowsPanelRefresh(order)) withRefreshBtn += 1;
       } catch (err) {
         logger.warn({ err, orderId: order.id }, "order panel rehydrate failed");
       }
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await new Promise((resolve) => setTimeout(resolve, REHYDRATE_GAP_MS));
     }
     logger.info(
       {
         refreshed,
-        scanned: rows.length,
-        eligible: eligible.length,
+        eligible: rows.length,
+        cappedAt: REHYDRATE_MAX_ORDERS,
         skippedStale,
         withRefreshBtn,
+        bootDelayMs: REHYDRATE_BOOT_DELAY_MS,
       },
-      "Rehydrated live order panels (Refresh seeded where unlocked)"
+      "Rehydrated live order panels (chrome-only; no canvas re-bake)"
     );
   })().finally(() => {
     rehydrateInFlight = null;
@@ -1545,7 +1560,8 @@ export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void>
 export async function refreshOrderMessages(
   client: Client,
   clan: Clan,
-  order: ServiceOrder
+  order: ServiceOrder,
+  opts: { forceCanvas?: boolean } = {}
 ): Promise<void> {
   const edit = async (
     channelId: string | null,
@@ -1569,7 +1585,40 @@ export async function refreshOrderMessages(
       });
       if (!msg) return;
 
-      const payload = await buildOrderPayload(client, clan, order, audience);
+      // Fast path: rewrite V2 chrome, keep Discord file bytes (no download/render).
+      if (
+        shouldReuseExistingOrderAttachments({
+          forceCanvas: opts.forceCanvas,
+          existingFiles: msg.attachments.size,
+        })
+      ) {
+        const canvasFile =
+          [...msg.attachments.values()].find((file) => isGeneratedOrderCanvas(file.name)) ??
+          [...msg.attachments.values()].find((file) =>
+            isImageAttachment({ name: file.name, contentType: file.contentType })
+          );
+        const keepPanel = buildServiceOrderV2Panel({
+          order,
+          audience,
+          canvasPng: null,
+          existingAttachmentName: canvasFile?.name ?? null,
+          mentionContent: audience === "ticket" ? audiencePingContent(order) : null,
+          showRefresh: audience === "board" && orderShowsPanelRefresh(order),
+        });
+        await editMessageAsV2(
+          msg,
+          stripLegacyMessageFields({
+            ...keepPanel,
+            files: undefined,
+            attachments: [...msg.attachments.values()].map((file) => ({ id: file.id })),
+          } as Record<string, unknown>) as MessageEditOptions
+        );
+        return;
+      }
+
+      const payload = await buildOrderPayload(client, clan, order, audience, {
+        forceCanvas: opts.forceCanvas,
+      });
       const keepCanvas = shouldKeepExistingOrderCanvas({
         photosExpected: payload.photosExpected,
         photosBaked: payload.photosBaked,

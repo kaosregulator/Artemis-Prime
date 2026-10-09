@@ -1,4 +1,12 @@
-import { Client, GatewayIntentBits, Events, Partials, REST, Routes } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  Events,
+  Partials,
+  REST,
+  Routes,
+  Options,
+} from "discord.js";
 import { logger } from "../lib/logger";
 import { commands } from "./commands";
 import { routeInteraction } from "./router";
@@ -148,6 +156,26 @@ export function startBot() {
     // role membership for bulk actions and exempt/leave role sync.
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     partials: [Partials.Channel],
+    // Cap caches + sweep stale messages/users — Discord.js defaults retain
+    // everything and push RSS up on long-lived Northflank pods.
+    makeCache: Options.cacheWithLimits({
+      ...Options.DefaultMakeCacheSettings,
+      MessageManager: 80,
+      PresenceManager: 0,
+      ReactionManager: 0,
+      GuildMemberManager: {
+        maxSize: 200,
+        keepOverLimit: (member) => member.id === member.client.user.id,
+      },
+    }),
+    sweepers: {
+      ...Options.DefaultSweeperSettings,
+      messages: { interval: 300, lifetime: 180 },
+      users: {
+        interval: 3600,
+        filter: () => (user) => user.bot && user.id !== user.client.user?.id,
+      },
+    },
     rest: {
       // Card replies attach a rendered PNG. discord.js's default undici
       // `request` strategy converts the multipart FormData through resolveBody
