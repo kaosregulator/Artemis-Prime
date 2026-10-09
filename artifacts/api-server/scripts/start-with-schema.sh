@@ -8,12 +8,13 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
-echo "Applying database schema (skip push if tables already exist; whitelist; no --force)..."
+echo "Checking database schema (drizzle-kit push only if application tables are missing)..."
 # CI=true keeps drizzle-kit non-interactive when push does run. Safe CREATE/ALTER
 # statements apply automatically; data-loss statements are NOT auto-approved
 # (we never pass --force). push-schema.sh skips push entirely when all
 # application tables are already present (restored production DBs) and fails
 # closed if drizzle-kit logs ownership errors on managed extension views.
+# Note: this shell exits before Node boots — schema check does not hold bot RSS.
 cd /app
 CI=true pnpm --filter @workspace/db push
 
