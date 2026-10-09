@@ -93,6 +93,7 @@ import {
   handleWizardModal,
   handleWizardSelect,
 } from "./setupWizard";
+import { setupMainPayloadV2 } from "../ui/v2/setupPanels";
 
 /**
  * The configuration hub. Replaces the old static setup embeds: one compact
@@ -333,7 +334,8 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
 }
 
 export function setupMainPayload(clan: Clan): BaseMessageOptions {
-  return { embeds: [summaryEmbed(clan)], components: mainButtons() };
+  // Pilot Components V2 hub — sub-panels still use classic embeds until migrated.
+  return setupMainPayloadV2(clan);
 }
 
 function backRow() {

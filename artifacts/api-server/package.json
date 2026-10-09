@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/bot/services/tracking.test.ts src/bot/services/disputes.test.ts src/bot/features/warnBoard.test.ts src/bot/services/scout/intelligence.test.ts src/bot/services/serviceOrderHelpers.test.ts src/bot/services/serviceCatalog.test.ts src/bot/services/todContent.test.ts"
+    "test": "DATABASE_URL=\"${DATABASE_URL:-postgres://127.0.0.1:5432/artemis_test}\" tsx --test src/bot/services/tracking.test.ts src/bot/services/disputes.test.ts src/bot/features/warnBoard.test.ts src/bot/services/scout/intelligence.test.ts src/bot/services/serviceOrderHelpers.test.ts src/bot/services/serviceCatalog.test.ts src/bot/services/todContent.test.ts src/bot/canvas/render-pool.test.ts src/bot/ui/v2/primitives.test.ts src/bot/services/discordErrors.test.ts src/bot/scheduler.overlap.test.ts"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",

@@ -435,8 +435,15 @@ const pending = new Map<string, Pending>();
 async function flush(guildId: string): Promise<void> {
   const entry = pending.get(guildId);
   if (entry?.running) return; // let the in-flight run pick up the latest state
+  if (entry) entry.running = true;
   pending.delete(guildId);
-  await doRefresh(guildId).catch(() => {});
+  try {
+    await doRefresh(guildId);
+  } catch {
+    /* logged in doRefresh */
+  } finally {
+    // If another refresh was scheduled while we ran, its timer is already set.
+  }
 }
 
 /**

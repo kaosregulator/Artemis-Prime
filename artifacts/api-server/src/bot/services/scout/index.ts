@@ -761,4 +761,8 @@ export type {
   ScoutIntelDashboard,
 } from "./types";
 export { toScoutUserError, logScoutError, ScoutServiceError } from "./errors";
-export { startScoutAutoSnapshots, scoutAutoSnapshotStatus } from "./client";
+export {
+  startScoutAutoSnapshots,
+  stopScoutAutoSnapshots,
+  scoutAutoSnapshotStatus,
+} from "./client";

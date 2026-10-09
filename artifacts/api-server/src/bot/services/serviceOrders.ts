@@ -29,6 +29,7 @@ import {
   type MessageEditOptions,
   type MessageCreateOptions,
 } from "discord.js";
+import { buildServiceOrderV2Panel, serviceOrderPanelV2 } from "../ui/v2/serviceOrderPanels";
 import { getClan, getMember, updateClan, isOfficer } from "./config";
 import { buildDisputeOverwrites, disputeStaffRoleIds } from "./disputeHelpers";
 import { createNotification } from "./notifications";
@@ -91,7 +92,6 @@ import {
   svcDelete,
   svcTranscript,
   svcViewPics,
-  SVC_PLACE,
 } from "../ui/ids";
 import { scheduleOrderTrackerRefresh } from "./orderTracker";
 import { promptServiceOrderReview } from "./serviceOrderReviews";
@@ -381,30 +381,37 @@ export async function placeServiceOrder(
     .returning();
   const row = order ?? { ...created, channelId: channel.id };
 
-  const ticketCard = await buildOrderPayload(input.client, input.clan, row, "ticket");
+  const ticketCard = await buildOrderPayload(input.client, input.clan, row, "ticket", {
+    forceCanvas: true,
+  });
   const staffPing = serviceTeamRoleIds(input.clan)
     .map((r) => `<@&${r}>`)
     .join(" ");
 
   try {
+    // Separate ping message — Components V2 panels cannot mix `content` mentions.
+    if (staffPing || input.customer.id) {
+      await channel
+        .send({
+          content: [
+            staffPing,
+            `<@${input.customer.id}>`,
+            `**${row.publicId}** placed · Queue **#${row.queuePosition ?? 1}**` +
+              (ordersAhead(row.queuePosition) === 0
+                ? " — you're next"
+                : ` · ${ordersAhead(row.queuePosition)} ahead`),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          allowedMentions: {
+            users: [input.customer.id],
+            roles: serviceTeamRoleIds(input.clan),
+          },
+        })
+        .catch(() => null);
+    }
     const ticketMsg = await channel.send({
-      content: [
-        staffPing,
-        `<@${input.customer.id}>`,
-        `**${row.publicId}** placed · Queue **#${row.queuePosition ?? 1}**` +
-          (ordersAhead(row.queuePosition) === 0
-            ? " — you're next"
-            : ` · ${ordersAhead(row.queuePosition)} ahead`),
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      embeds: ticketCard.embeds,
-      files: ticketCard.files,
-      components: ticketCard.components,
-      allowedMentions: {
-        users: [input.customer.id],
-        roles: serviceTeamRoleIds(input.clan),
-      },
+      ...ticketCard.v2,
     });
     row.ticketMessageId = ticketMsg.id;
     await db
@@ -445,17 +452,17 @@ export async function placeServiceOrder(
             .where(eq(serviceOrdersTable.id, row.id));
           row.attachmentsJson = serializeAttachments(stable);
           row.attachmentCount = stable.length;
-          // Refresh the ticket canvas now that photos have durable URLs.
-          const refreshed = await buildOrderPayload(input.client, input.clan, row, "ticket");
+          // Refresh the ticket panel now that photos have durable URLs.
+          const refreshed = await buildOrderPayload(input.client, input.clan, row, "ticket", {
+            forceCanvas: true,
+          });
           if (row.ticketMessageId) {
             try {
               const tmsg = await channel.messages.fetch(row.ticketMessageId);
               await tmsg.edit({
-                embeds: refreshed.embeds,
-                files: refreshed.files,
-                components: refreshed.components,
+                ...refreshed.v2,
                 attachments: [],
-              });
+              } as MessageEditOptions);
             } catch (err) {
               logger.warn({ err, orderId: row.id }, "ticket photo canvas refresh failed");
             }
@@ -470,12 +477,17 @@ export async function placeServiceOrder(
       .fetch(input.clan.serviceOrderChannelId!)
       .catch(() => null);
     if (board?.isTextBased()) {
-      const boardCardFresh = await buildOrderPayload(input.client, input.clan, row, "board");
+      const boardCardFresh = await buildOrderPayload(input.client, input.clan, row, "board", {
+        forceCanvas: Boolean(row.attachmentCount),
+      });
+      await board
+        .send({
+          content: `🆕 **${row.publicId}** · ${catalogService.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
+          allowedMentions: { users: [input.customer.id] },
+        })
+        .catch(() => null);
       const boardMsg = await board.send({
-        content: `🆕 **${row.publicId}** · ${catalogService.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
-        embeds: boardCardFresh.embeds,
-        files: boardCardFresh.files,
-        components: boardCardFresh.components,
+        ...boardCardFresh.v2,
       });
       await db
         .update(serviceOrdersTable)
@@ -1140,6 +1152,64 @@ const freshPhotoCache = new Map<
   { at: number; photos: ServiceOrderAttachment[]; files?: { name: string; data: Buffer }[] }
 >();
 const FRESH_PHOTO_MS = 20_000;
+const FRESH_PHOTO_MAX = 40;
+
+/** Discord permanent failures — clear stale IDs, do not retry forever. */
+const DISCORD_UNKNOWN_CHANNEL = 10003;
+const DISCORD_UNKNOWN_MESSAGE = 10008;
+const DISCORD_MISSING_ACCESS = 50001;
+
+function discordErrorCode(err: unknown): number | null {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = (err as { code: unknown }).code;
+    return typeof code === "number" ? code : null;
+  }
+  return null;
+}
+
+function isPermanentDiscordRefError(code: number | null): boolean {
+  return (
+    code === DISCORD_UNKNOWN_CHANNEL ||
+    code === DISCORD_UNKNOWN_MESSAGE ||
+    code === DISCORD_MISSING_ACCESS
+  );
+}
+
+function evictFreshPhotoCache(): void {
+  const now = Date.now();
+  for (const [id, entry] of freshPhotoCache) {
+    if (now - entry.at > FRESH_PHOTO_MS * 3) freshPhotoCache.delete(id);
+  }
+  if (freshPhotoCache.size <= FRESH_PHOTO_MAX) return;
+  const oldest = [...freshPhotoCache.entries()].sort((a, b) => a[1].at - b[1].at);
+  for (let i = 0; i < oldest.length - FRESH_PHOTO_MAX; i++) {
+    freshPhotoCache.delete(oldest[i]![0]);
+  }
+}
+
+async function clearOrderDiscordRefs(
+  order: ServiceOrder,
+  audience: "ticket" | "board",
+  opts: { clearChannel?: boolean; clearMessage?: boolean }
+): Promise<void> {
+  const patch: Partial<ServiceOrder> = {};
+  if (audience === "ticket") {
+    if (opts.clearChannel) patch.channelId = null;
+    if (opts.clearMessage) patch.ticketMessageId = null;
+  } else {
+    if (opts.clearChannel) patch.boardChannelId = null;
+    if (opts.clearMessage) patch.boardMessageId = null;
+  }
+  if (!Object.keys(patch).length) return;
+  await db
+    .update(serviceOrdersTable)
+    .set(patch)
+    .where(eq(serviceOrdersTable.id, order.id))
+    .catch((err) => {
+      logger.warn({ err, orderId: order.id, audience }, "failed to clear stale Discord refs");
+    });
+  Object.assign(order, patch);
+}
 
 /**
  * Discord attachment links expire. Read the ticket and swap in the current
@@ -1150,6 +1220,7 @@ async function loadFreshOrderPhotos(
   client: Client,
   order: ServiceOrder
 ): Promise<ServiceOrderAttachment[]> {
+  evictFreshPhotoCache();
   const hit = freshPhotoCache.get(order.id);
   if (hit && Date.now() - hit.at < FRESH_PHOTO_MS) return hit.photos;
 
@@ -1158,7 +1229,16 @@ async function loadFreshOrderPhotos(
     .slice(0, SERVICE_ORDER_MAX_PHOTOS);
   if (!stored.length || !order.channelId) return stored;
 
-  const channel = await client.channels.fetch(order.channelId).catch(() => null);
+  const channel = await client.channels.fetch(order.channelId).catch((err) => {
+    const code = discordErrorCode(err);
+    if (isPermanentDiscordRefError(code)) {
+      void clearOrderDiscordRefs(order, "ticket", {
+        clearChannel: code === DISCORD_UNKNOWN_CHANNEL || code === DISCORD_MISSING_ACCESS,
+        clearMessage: true,
+      });
+    }
+    return null;
+  });
   if (!channel?.isTextBased() || !("messages" in channel)) return stored;
 
   const live = await listTicketFiles(channel);
@@ -1220,13 +1300,18 @@ export async function buildOrderPayload(
   client: Client,
   clan: Clan,
   order: ServiceOrder,
-  audience: "ticket" | "board" = "board"
+  audience: "ticket" | "board" = "board",
+  opts: { forceCanvas?: boolean } = {}
 ): Promise<{
+  /** Legacy embeds — empty when using Components V2. */
   embeds: EmbedBuilder[];
   files?: AttachmentBuilder[];
   components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+  /** Full V2 message/edit payload (preferred). */
+  v2: MessageCreateOptions;
   photosExpected: number;
   photosBaked: number;
+  usedCanvas: boolean;
 }> {
   const member = await getMember(clan.guildId, order.customerId);
   const discordUser = await client.users.fetch(order.customerId).catch(() => null);
@@ -1260,135 +1345,141 @@ export async function buildOrderPayload(
     meta?.targetMaxed !== undefined ? meta.targetMaxed : parsed.targetMaxed;
 
   const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
-  const loadedPhotos = await loadOrderPhotoFiles(client, order);
-  const photoPngs = loadedPhotos.files.map((photo) => photo.data.toString("base64"));
-  let files: AttachmentBuilder[] | undefined;
-  try {
-    const png = await renderOffThread("serviceOrderCard", {
-      communityName: clan.clanName,
-      publicId: order.publicId,
-      serviceLabel: order.serviceLabel,
-      statusLabel: `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? status}`.trim(),
-      statusTone: statusTone(status),
-      customerName: order.customerDisplayName,
-      customerHandle: order.customerUsername,
-      avatarUrl,
-      details: order.details,
-      queuePosition: order.queuePosition,
-      ordersAhead: isTerminalStatus(status) ? null : ordersAhead(order.queuePosition),
-      attachmentCount: order.attachmentCount,
-      staffName: order.staffUsername,
-      placeMessage,
-      vehicleCount: parsed.vehicleCount,
-      vehicleText: vehicleText || null,
-      itemNoun,
-      currentLevel,
-      targetLevel,
-      targetMaxed,
-      speedLabel,
-      quoteLine,
-      tags: displayTags,
-      photoUrls: photoPngs.length ? [] : undefined,
-      photoPngs,
-      orderedAt: order.createdAt.toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      }),
-    });
-    files = [new AttachmentBuilder(png, { name: `order-${order.publicId}.png` })];
-  } catch (err) {
-    logger.warn({ err, orderId: order.id }, "serviceOrderCard render failed");
-  }
 
-  // Canvas carries status / quote / levels — keep the Discord embed thin so
-  // the ticket isn't a second copy of the same info under the image.
-  const embed = new EmbedBuilder()
-    .setColor(STATUS_COLOR[status] ?? 0x5865f2)
-    .setTimestamp(order.createdAt);
+  // Canvas only when photos exist (or forced on create). Routine status updates
+  // use Components V2 text — avoids burning the sole render worker on text churn.
+  const shouldRenderCanvas = opts.forceCanvas || order.attachmentCount > 0;
+  let loadedPhotos: { expected: number; files: { name: string; data: Buffer }[] } = {
+    expected: 0,
+    files: [],
+  };
+  let canvasPng: Buffer | null = null;
 
-  if (audience === "ticket") {
-    embed
-      .setTitle(`${STATUS_EMOJI[status] ?? "🛠️"} ${order.publicId}`)
-      .setDescription(
-        [
+  if (shouldRenderCanvas) {
+    loadedPhotos = await loadOrderPhotoFiles(client, order);
+    const photoPngs = loadedPhotos.files.map((photo) => photo.data.toString("base64"));
+    // Skip expensive canvas when we expected photos but none downloaded — caller
+    // may keep the existing attachment via shouldKeepExistingOrderCanvas.
+    if (loadedPhotos.files.length > 0 || opts.forceCanvas) {
+      try {
+        canvasPng = await renderOffThread("serviceOrderCard", {
+          communityName: clan.clanName,
+          publicId: order.publicId,
+          serviceLabel: order.serviceLabel,
+          statusLabel: `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? status}`.trim(),
+          statusTone: statusTone(status),
+          customerName: order.customerDisplayName,
+          customerHandle: order.customerUsername,
+          avatarUrl,
+          details: order.details,
+          queuePosition: order.queuePosition,
+          ordersAhead: isTerminalStatus(status) ? null : ordersAhead(order.queuePosition),
+          attachmentCount: order.attachmentCount,
+          staffName: order.staffUsername,
           placeMessage,
-          speedLabel ? `⚡ ${speedLabel}` : null,
-          quoteLine ? `💎 ${quoteLine}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ") || queueHeadline(order)
-      );
-  } else {
-    embed
-      .setTitle(`${STATUS_EMOJI[status] ?? "🛠️"} ${order.publicId} · ${order.serviceLabel}`)
-      .setDescription(queueHeadline(order))
-      .addFields(
-        { name: "Customer", value: `<@${order.customerId}>`, inline: true },
-        {
-          name: "Queue",
-          value:
-            order.queuePosition != null
-              ? `#${order.queuePosition} (${ordersAhead(order.queuePosition)} ahead)`
-              : "—",
-          inline: true,
-        },
-        {
-          name: "Staff",
-          value: order.staffId ? `<@${order.staffId}>` : "_unclaimed_",
-          inline: true,
-        },
-        ...(quoteLine
-          ? [{ name: "💎 Quote", value: quoteLine, inline: true }]
-          : []),
-        ...(speedLabel
-          ? [{ name: "⚡ Priority", value: speedLabel, inline: true }]
-          : []),
-        {
-          name: `${itemNoun.charAt(0).toUpperCase()}${itemNoun.slice(1)}`,
-          value: vehicleText ? vehicleText.slice(0, 200) : "_none_",
-          inline: false,
-        }
-      );
+          vehicleCount: parsed.vehicleCount,
+          vehicleText: vehicleText || null,
+          itemNoun,
+          currentLevel,
+          targetLevel,
+          targetMaxed,
+          speedLabel,
+          quoteLine,
+          tags: displayTags,
+          photoUrls: photoPngs.length ? [] : undefined,
+          photoPngs,
+          orderedAt: order.createdAt.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+        });
+      } catch (err) {
+        logger.warn({ err, orderId: order.id }, "serviceOrderCard render failed");
+      }
+    }
   }
 
-  if (files?.length) {
-    embed.setImage(`attachment://order-${order.publicId}.png`);
-  }
+  const mentionContent =
+    audience === "ticket"
+      ? audiencePingContent(order)
+      : `**${order.publicId}** · ${queueHeadline(order)}`;
+
+  const v2 = buildServiceOrderV2Panel({
+    order,
+    audience,
+    placeMessage,
+    speedLabel,
+    quoteLine,
+    vehicleText: vehicleText || null,
+    itemNoun,
+    canvasPng,
+    mentionContent: audience === "ticket" ? mentionContent : null,
+  });
 
   return {
-    embeds: [embed],
-    files,
+    embeds: [],
+    files: canvasPng
+      ? [new AttachmentBuilder(canvasPng, { name: `order-${order.publicId}.png` })]
+      : undefined,
     components: componentsForAudience(order.id, audience, status),
+    v2,
     photosExpected: loadedPhotos.expected,
     photosBaked: loadedPhotos.files.length,
+    usedCanvas: Boolean(canvasPng),
   };
 }
 
+let rehydrateInFlight: Promise<void> | null = null;
+
 /**
- * Redraw every order canvas that still has saved photos. Runs once after the
- * bot is ready so live tickets pick up current Discord file links.
+ * Redraw order panels that still have saved photos. Runs once after ready
+ * so live tickets pick up current Discord file links. Idempotent / mutexed.
  */
 export async function rehydrateOrderPhotoCanvases(client: Client): Promise<void> {
-  const rows = await db
-    .select()
-    .from(serviceOrdersTable)
-    .where(gt(serviceOrdersTable.attachmentCount, 0));
-  let refreshed = 0;
-  for (const order of rows) {
-    if (!order.ticketMessageId && !order.boardMessageId) continue;
-    const clan = await getClan(order.guildId);
-    if (!clan) continue;
-    try {
-      await refreshOrderMessages(client, clan, order);
-      refreshed += 1;
-    } catch (err) {
-      logger.warn({ err, orderId: order.id }, "order photo canvas rehydrate failed");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+  if (rehydrateInFlight) {
+    logger.info("Order photo rehydrate already running — joining in-flight pass");
+    return rehydrateInFlight;
   }
-  logger.info({ refreshed, scanned: rows.length }, "Rehydrated order canvases from ticket photos");
+  rehydrateInFlight = (async () => {
+    // Only active queue + recently updated terminals with photos — avoid
+    // hammering ancient completed tickets whose channels were deleted.
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const rows = await db
+      .select()
+      .from(serviceOrdersTable)
+      .where(gt(serviceOrdersTable.attachmentCount, 0));
+    const eligible = rows.filter((order) => {
+      if (!order.ticketMessageId && !order.boardMessageId) return false;
+      if (!isTerminalStatus(order.status)) return true;
+      return order.updatedAt >= cutoff;
+    });
+    let refreshed = 0;
+    let skippedStale = 0;
+    for (const order of eligible) {
+      if (!order.channelId && !order.boardChannelId) {
+        skippedStale += 1;
+        continue;
+      }
+      const clan = await getClan(order.guildId);
+      if (!clan) continue;
+      try {
+        await refreshOrderMessages(client, clan, order);
+        refreshed += 1;
+      } catch (err) {
+        logger.warn({ err, orderId: order.id }, "order photo canvas rehydrate failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    logger.info(
+      { refreshed, scanned: rows.length, eligible: eligible.length, skippedStale },
+      "Rehydrated order canvases from ticket photos"
+    );
+  })().finally(() => {
+    rehydrateInFlight = null;
+  });
+  return rehydrateInFlight;
 }
 
 export async function refreshOrderMessages(
@@ -1396,11 +1487,6 @@ export async function refreshOrderMessages(
   clan: Clan,
   order: ServiceOrder
 ): Promise<void> {
-  const status = order.status as ServiceOrderStatus;
-  const content =
-    audiencePingContent(order) ??
-    `${STATUS_EMOJI[status] ?? ""} **${order.publicId}** · ${queueHeadline(order)}`;
-
   const edit = async (
     channelId: string | null,
     messageId: string | null,
@@ -1410,38 +1496,71 @@ export async function refreshOrderMessages(
     try {
       const ch = await client.channels.fetch(channelId);
       if (!ch?.isTextBased()) return;
-      const msg = await ch.messages.fetch(messageId).catch(() => null);
+      const msg = await ch.messages.fetch(messageId).catch(async (err) => {
+        const code = discordErrorCode(err);
+        if (code === DISCORD_UNKNOWN_MESSAGE) {
+          await clearOrderDiscordRefs(order, audience, { clearMessage: true });
+          logger.info(
+            { orderId: order.id, channelId, audience, code },
+            "Cleared stale order message id (unknown message)"
+          );
+        }
+        return null;
+      });
       if (!msg) return;
+
       const payload = await buildOrderPayload(client, clan, order, audience);
-      const editPayload: MessageEditOptions = {
-        content: audience === "ticket" ? content : `**${order.publicId}** · ${queueHeadline(order)}`,
-        embeds: payload.embeds,
-        components: payload.components,
-      };
       const keepCanvas = shouldKeepExistingOrderCanvas({
         photosExpected: payload.photosExpected,
         photosBaked: payload.photosBaked,
         existingFiles: msg.attachments.size,
       });
+
       if (keepCanvas) {
+        // Preserve existing canvas bytes; rebuild V2 chrome referencing that file.
         const canvasFile =
           [...msg.attachments.values()].find((file) => isGeneratedOrderCanvas(file.name)) ??
           [...msg.attachments.values()].find((file) =>
             isImageAttachment({ name: file.name, contentType: file.contentType })
           );
-        if (canvasFile?.name) payload.embeds[0]?.setImage(`attachment://${canvasFile.name}`);
-        editPayload.attachments = [...msg.attachments.values()].map((file) => ({ id: file.id }));
+        const keepPanel = buildServiceOrderV2Panel({
+          order,
+          audience,
+          canvasPng: null,
+          existingAttachmentName: canvasFile?.name ?? null,
+          mentionContent: audience === "ticket" ? audiencePingContent(order) : null,
+        });
+        const editPayload = {
+          ...keepPanel,
+          files: undefined,
+          attachments: [...msg.attachments.values()].map((file) => ({ id: file.id })),
+        } as MessageEditOptions;
         logger.warn(
-          { orderId: order.id, expected: payload.photosExpected },
+          { orderId: order.id, expected: payload.photosExpected, kept: canvasFile?.name ?? null },
           "Left the existing order canvas in place; photo files could not be downloaded"
         );
-      } else if (payload.files?.length) {
-        editPayload.files = payload.files;
-        editPayload.attachments = [];
+        await msg.edit(editPayload);
+        return;
       }
-      await msg.edit(editPayload);
+
+      await msg.edit({
+        ...payload.v2,
+        ...(payload.v2.files?.length ? { attachments: [] } : {}),
+      } as MessageEditOptions);
     } catch (err) {
-      logger.warn({ err, orderId: order.id, channelId }, "order message refresh failed");
+      const code = discordErrorCode(err);
+      if (isPermanentDiscordRefError(code)) {
+        await clearOrderDiscordRefs(order, audience, {
+          clearChannel: code === DISCORD_UNKNOWN_CHANNEL || code === DISCORD_MISSING_ACCESS,
+          clearMessage: true,
+        });
+        logger.info(
+          { orderId: order.id, channelId, audience, code },
+          "Cleared stale Discord refs after permanent API error"
+        );
+        return;
+      }
+      logger.warn({ err, orderId: order.id, channelId, code }, "order message refresh failed");
     }
   };
 
@@ -1716,48 +1835,7 @@ export async function ensureServiceOrderCategory(
   return { categoryId: category.id, clan: updated };
 }
 
-/** Public panel payload — Place Service Order button. */
+/** Public panel payload — Place Service Order button (Components V2). */
 export function serviceOrderPanelPayload(clan?: Clan | null): MessageCreateOptions {
-  const catalog = getServiceCatalog(clan ?? null);
-  const serviceLines = catalog.services
-    .slice(0, 6)
-    .map((s) => `${s.emoji} **${s.label}** — ${s.blurb}`)
-    .join("\n");
-  return {
-    embeds: [
-      new EmbedBuilder()
-        .setColor(0x3f51e0)
-        .setTitle(`🛠️ ${catalog.brandName}`)
-        .setDescription(
-          [
-            catalog.tagline ? `*${catalog.tagline}*` : null,
-            "",
-            "Need something leveled or traded? Open a ticket in a few taps:",
-            "",
-            "1. Press **Place Service Order**",
-            "2. Pick **service** + **priority** (buttons & dropdown)",
-            `3. Enter your **${catalog.itemNoun}**, levels, and **1–5 photos**`,
-            "4. Get a private ticket with queue card, tags, and quote",
-            "",
-            "**What we offer**",
-            serviceLines,
-            "",
-            SERVICE_ORDER_PATIENCE_NOTICE,
-            "",
-            "_Catalog is configurable per server — not hard-coded to one game._",
-          ]
-            .filter((l) => l !== null)
-            .join("\n")
-        ),
-    ],
-    components: [
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(SVC_PLACE)
-          .setLabel("Place Service Order")
-          .setEmoji("🎫")
-          .setStyle(ButtonStyle.Primary)
-      ),
-    ],
-  };
+  return serviceOrderPanelV2(clan);
 }
