@@ -25,6 +25,18 @@ import { DASH_HOME, dashBoardPage } from "../ui/ids";
 const PAGE_SIZE = 10;
 const FETCH_CAP = 100;
 
+export type WarnBoardView = "active" | "lifetime";
+
+/** `dash:board`, `dash:board:2` (legacy), or `dash:board:active-2` / `life-2`. */
+export function parseWarnBoardArg(arg?: string | null): { view: WarnBoardView; page: number } {
+  if (!arg || /^\d+$/.test(arg)) {
+    return { view: "active", page: Math.max(0, parseInt(arg ?? "0", 10) || 0) };
+  }
+  const [viewRaw, pageRaw] = arg.split("-");
+  const view: WarnBoardView = viewRaw === "life" || viewRaw === "lifetime" ? "lifetime" : "active";
+  return { view, page: Math.max(0, parseInt(pageRaw ?? "0", 10) || 0) };
+}
+
 interface Listed {
   rank: number;
   name: string;
@@ -42,20 +54,38 @@ function lines(rows: Listed[], empty: string): string {
   return rows.map((r) => `${r.rank}. ${r.name}: ${r.count}${r.note}`).join("\n");
 }
 
-function pager(page: number, pages: number): ActionRowBuilder<MessageActionRowComponentBuilder> {
-  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(dashBoardPage(page - 1))
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("◀ Prev")
-      .setDisabled(page <= 0),
-    new ButtonBuilder().setCustomId(DASH_HOME).setStyle(ButtonStyle.Primary).setLabel("Overview"),
-    new ButtonBuilder()
-      .setCustomId(dashBoardPage(page + 1))
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("Next ▶")
-      .setDisabled(page >= pages - 1)
-  );
+function pager(
+  page: number,
+  pages: number,
+  view: WarnBoardView
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  return [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(dashBoardPage(0, "active"))
+        .setStyle(view === "active" ? ButtonStyle.Danger : ButtonStyle.Secondary)
+        .setLabel("Active")
+        .setDisabled(view === "active"),
+      new ButtonBuilder()
+        .setCustomId(dashBoardPage(0, "lifetime"))
+        .setStyle(view === "lifetime" ? ButtonStyle.Primary : ButtonStyle.Secondary)
+        .setLabel("Lifetime")
+        .setDisabled(view === "lifetime"),
+      new ButtonBuilder().setCustomId(DASH_HOME).setStyle(ButtonStyle.Secondary).setLabel("Overview")
+    ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(dashBoardPage(page - 1, view))
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("◀ Prev")
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(dashBoardPage(page + 1, view))
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("Next ▶")
+        .setDisabled(page >= pages - 1)
+    ),
+  ];
 }
 
 function boardNotice(clan: Clan, message: string): BaseMessageOptions {
@@ -67,7 +97,7 @@ function boardNotice(clan: Clan, message: string): BaseMessageOptions {
     content: "",
     embeds: [embed],
     files: [],
-    components: [pager(0, 1)],
+    components: pager(0, 1, "active"),
   };
 }
 
@@ -75,7 +105,8 @@ function boardNotice(clan: Clan, message: string): BaseMessageOptions {
 export async function buildWarnBoardPayload(
   clan: Clan,
   page = 0,
-  guild?: Guild | null
+  guild?: Guild | null,
+  view: WarnBoardView = "active"
 ): Promise<BaseMessageOptions> {
   if (!clan.requiredRoleId) {
     return boardNotice(
@@ -104,14 +135,19 @@ export async function buildWarnBoardPayload(
   }
 
   const [warned, reminded] = await Promise.all([
-    rankByWarnings(clan.guildId, FETCH_CAP, audience.memberIds),
+    rankByWarnings(clan.guildId, FETCH_CAP, audience.memberIds, view),
     rankByReminders(clan.guildId, FETCH_CAP, audience.memberIds),
   ]);
   const warnedRows: Listed[] = warned.map((r: EnforcementRankRow, i) => ({
     rank: i + 1,
     name: displayName(r.userId, r.username, names),
-    count: r.count,
-    note: r.active === r.count ? "" : ` (${r.active} still active)`,
+    count: view === "active" ? r.active : r.count,
+    note:
+      view === "active"
+        ? " active"
+        : r.active === r.count
+          ? ""
+          : ` (${r.active} still active)`,
   }));
   const remindedRows: Listed[] = reminded.map((r, i) => ({
     rank: i + 1,
@@ -129,7 +165,9 @@ export async function buildWarnBoardPayload(
   const start = current * PAGE_SIZE;
   const activity = activityWord(clan);
   const emptyWarned = audience.memberIds.length
-    ? "_Nobody with the track role has a saved warning._"
+    ? view === "active"
+      ? "_Nobody with the track role has an active warning._"
+      : "_Nobody with the track role has a saved warning._"
     : "_Nobody currently has the activity track role._";
   const emptyReminded = audience.memberIds.length
     ? "_Nobody with the track role has a saved reminder._"
@@ -137,15 +175,18 @@ export async function buildWarnBoardPayload(
 
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setTitle(`${clan.clanName} — warnings & reminders`)
+    .setTitle(`${clan.clanName} — ${view === "active" ? "active warnings" : "lifetime warnings"}`)
     .setDescription(
       `Page **${current + 1}** of **${pages}** · 10 people per page\n` +
         `Only members who currently have <@&${clan.requiredRoleId}>. ` +
-        `These are messages about **${activity}**. Clan points are a separate award you give out.`
+        (view === "active"
+          ? `**Active** is who still has a warning on them. The warning role turns on at **2** active warnings.`
+          : `**Lifetime** counts every warning ever saved, including ones staff already cleared.`) +
+        `\nMessages are about **${activity}**. Clan points are a separate award.`
     )
     .addFields(
       {
-        name: "Most warned",
+        name: view === "active" ? "On an active warning" : "Most warned",
         value: lines(warnedRows.slice(start, start + PAGE_SIZE), emptyWarned).slice(0, 1024),
       },
       {
@@ -154,14 +195,17 @@ export async function buildWarnBoardPayload(
       }
     )
     .setFooter({
-      text: "Current track role only. Lifetime totals. Cleared warnings still count.",
+      text:
+        view === "active"
+          ? "Active list. A warning stays until staff clear it."
+          : "Lifetime totals. Cleared warnings still count here.",
     });
 
   return {
     content: "",
     embeds: [embed],
     files: [],
-    components: [pager(current, pages)],
+    components: pager(current, pages, view),
   };
 }
 
@@ -182,5 +226,5 @@ export async function handleWarnBoard(interaction: ChatInputCommandInteraction) 
     await interaction.editReply({ content: "Only officers can open the warning board." });
     return;
   }
-  await interaction.editReply(await buildWarnBoardPayload(clan, 0, interaction.guild));
+  await interaction.editReply(await buildWarnBoardPayload(clan, 0, interaction.guild, "active"));
 }

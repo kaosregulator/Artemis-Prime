@@ -128,13 +128,13 @@ export const TRACKING_PERIODS = [
   {
     value: "weekly",
     label: "Weekly",
-    description: "One requirement per week (resets on week-start day)",
+    description: "Activity is counted by week",
     emoji: "🗓️",
   },
   {
     value: "daily",
     label: "Daily",
-    description: "One requirement per day (resets every day at reset time)",
+    description: "Activity is counted by day",
     emoji: "📆",
   },
 ] as const;
@@ -190,7 +190,7 @@ export function warnRemovalLabel(hours: number): string {
 function goalLine(clan: Clan): string {
   const period = periodAdjective(clan);
   if (clan.trackingMode === "complete") {
-    return `Complete the ${period} **${clan.activityName}** requirement`;
+    return `Mark **${clan.activityName}** done each ${period}`;
   }
   if (getTrackingPeriod(clan) === "daily") {
     const goal = clan.dailyTarget > 0 ? clan.dailyTarget : clan.weeklyGoal;
@@ -242,9 +242,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
       {
         name: `${check(clan.warningThreshold)} Enforcement`,
         value:
-          `Warning after **${clan.warningThreshold}** reminder(s) without hitting the goal\n` +
+          `Reminders before a warning: **${clan.warningThreshold}**\n` +
           `Leadership review at **${clan.escalationThreshold}** active warning(s)\n` +
-          `Warning role auto-removal: **${warnRemovalLabel(clan.warningRemovalHours)}**\n` +
+          `Warning role: on at **2** active warnings\n` +
           `Warning/reminder style: **${cardStyleLabel(clan)}**`,
         inline: false,
       },
@@ -325,7 +325,7 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
       b(SETUP_CARDS, "Warnings & Cards")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(SETUP_DISPUTES, "XP Disputes", ButtonStyle.Primary),
+      b(SETUP_DISPUTES, "Disputes", ButtonStyle.Primary),
       b(SETUP_LEVELING, "Leveling Service", ButtonStyle.Primary),
       b(SETUP_FINISH, "Finish", ButtonStyle.Success),
       b(wizGo(1), "🧭 Guided setup wizard")
@@ -397,9 +397,9 @@ function periodPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("🗓️ Tracking Period")
         .setDescription(
-          "**Weekly** — one requirement per week. Resets on the week-start day at reset time.\n" +
-            "**Daily** — one requirement per day. Resets every day at reset time.\n\n" +
-            "This drives reminders, warnings, progress, auto-role clearance, and resets.\n\n" +
+          "**Weekly** — activity is counted by week and archives on the week-start day.\n" +
+            "**Daily** — activity is counted by day and archives at reset time.\n\n" +
+            "Reminders and the activity leaderboard follow this period. Warnings stay until staff clear them.\n\n" +
             `Currently: **${periodSetupLabel(clan)}**`
         ),
     ],
@@ -416,7 +416,7 @@ function disputesPayload(clan: Clan): BaseMessageOptions {
     embeds: [
       new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle("⚖️ XP Disputes")
+        .setTitle("⚖️ Disputes")
         .setDescription(
           "Members open a **private ticket channel** with **/dispute** and can attach an image " +
             "from their device (Discord's normal upload — **no image URL**).\n\n" +
@@ -690,7 +690,7 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
     );
   const tracked = new RoleSelectMenuBuilder()
     .setCustomId(SETUP_REQUIRED_ROLE)
-    .setPlaceholder("Activity track role (who must complete activity)")
+    .setPlaceholder("Activity track role (leaderboard and warnings)")
     .setMinValues(0)
     .setMaxValues(1);
   if (clan.requiredRoleId) tracked.setDefaultRoles([clan.requiredRoleId]);
@@ -701,7 +701,7 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("🛡️ Roles")
         .setDescription(
-          "**Activity track role** — members with this role appear on the leaderboard and count toward activity requirements. " +
+          "**Activity track role** — members with this role appear on the leaderboard and the warning board. " +
             "Use **Create Clan Activity role** if you don't have one yet.\n\n" +
             "**Officers** — log activity, remind, warn, run the review.\n" +
             "**Admins** — everything officers can do, plus configuration.\n" +
@@ -757,8 +757,7 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
             "**DM on warning** — send the warning by direct message too.\n" +
             "**Auto period reset** — archive & reset progress at the period boundary.\n" +
             "**Archive history** — keep per-member period snapshots for history commands.\n\n" +
-            "**Warning role** — assigned automatically whenever a member is warned, " +
-            "and removed once they have no active warnings left. Leave empty for none.\n" +
+            "**Warning role** — applied when a member has **2 active warnings**, and removed when they drop below 2. Leave empty for none.\n" +
             "**On leave roles** — members with these roles are skipped until leave ends."
         ),
     ],
@@ -768,7 +767,7 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new RoleSelectMenuBuilder()
           .setCustomId(SETUP_WARN_ROLES)
-          .setPlaceholder("Warning role (assigned on warn)")
+          .setPlaceholder("Warning role (on at 2 active warnings)")
           .setMinValues(0)
           .setMaxValues(5)
           .setDefaultRoles(clan.warningRoleIds)
@@ -828,25 +827,6 @@ function cardsPayload(clan: Clan): BaseMessageOptions {
       }))
     );
 
-  // A preset is "selected" only when it exactly matches the stored hours; a
-  // custom value shows as a placeholder so the current interval stays visible.
-  const removalMatches = WARN_REMOVAL_PRESETS.some((p) => p.hours === clan.warningRemovalHours);
-  const removal = new StringSelectMenuBuilder()
-    .setCustomId(SETUP_WARN_REMOVAL)
-    .setPlaceholder(
-      removalMatches
-        ? "Warning role auto-removal…"
-        : `Custom — ${warnRemovalLabel(clan.warningRemovalHours)}`
-    )
-    .addOptions(
-      WARN_REMOVAL_PRESETS.map((p) => ({
-        value: p.value,
-        label: p.label,
-        emoji: p.emoji,
-        default: removalMatches && p.hours === clan.warningRemovalHours,
-      }))
-    );
-
   return {
     embeds: [
       new EmbedBuilder()
@@ -856,23 +836,15 @@ function cardsPayload(clan: Clan): BaseMessageOptions {
           "**Warning / reminder style** — pick what posts to the channel & DM:\n" +
             "• **Canvas cards** — the branded avatar cards.\n" +
             "• **Avatar embed** — the classic embed with the member's avatar.\n\n" +
-            "**Warning role auto-removal** — the warning role is auto-assigned once a member " +
-            "reaches your warning threshold. Choose when the **role** comes back off:\n" +
-            "• **Off** — role cleared only when staff remove their last active warning (default).\n" +
-            "• **Hourly / Daily / Weekly / Monthly** — role strips after that age; **warning records stay** for history & disputes.\n" +
-            "• **Custom interval…** — enter any number of hours, days, weeks or months.\n" +
-            "• Meeting the XP requirement also strips the role only — never auto-deletes warnings.\n\n" +
-            `Currently: style **${cardStyleLabel(clan)}** · auto-removal **${warnRemovalLabel(clan.warningRemovalHours)}**`
+            "Cards show the member's **linked Roblox avatar** in the corner (Discord avatar if they aren't linked).\n\n" +
+            "The **warning role** turns on at **2 active warnings** and comes off when they drop below 2. " +
+            "Warnings stay until staff clear them — they do not expire on a timer.\n\n" +
+            `Currently: style **${cardStyleLabel(clan)}**`
         ),
     ],
     components: [
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(cardStyle),
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(removal),
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(SETUP_WARN_REMOVAL_CUSTOM)
-          .setLabel("✏️ Custom interval…")
-          .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
       ),
     ],

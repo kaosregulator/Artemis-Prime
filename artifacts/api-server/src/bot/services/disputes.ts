@@ -56,8 +56,8 @@ export const OPEN_DISPUTE_STATUSES: DisputeStatus[] = [
 ];
 
 export const DISPUTE_TYPE_LABEL: Record<DisputeType, string> = {
-  warning: "XP warning",
-  xp_record: "XP record",
+  warning: "Warning",
+  xp_record: "Activity record",
   role_action: "Role action",
 };
 

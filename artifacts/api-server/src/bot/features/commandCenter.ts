@@ -13,27 +13,24 @@ import {
 import type { Clan } from "@workspace/db";
 import { getClan, isOfficer, getMember } from "../services/config";
 import {
-  listTracked,
   statusOf,
   STATUS_LABEL,
   formatProgress,
   effectiveGoal,
   currentProgress,
-  reminderTargets,
-  warningTargets,
 } from "../services/progress";
-import { membersMissingToday } from "../services/xpLedger";
 import { listActive } from "../services/warnings";
 import { listMemberNotes } from "../services/notes";
 import { disputesForUser } from "../services/disputes";
 import { periodTotals } from "../services/xpLedger";
-import { nextWeeklyReset, discordRelative, relative } from "../services/time";
+import { relative } from "../services/time";
 import {
   postCommandCenter,
   buildCommandCenterPayload,
   refreshDashboardNow,
 } from "../services/commandCenter";
 import { buildDashboardPayload, buildOverviewPayload } from "./dashboard";
+import { buildWarnBoardPayload } from "./warnBoard";
 import { buildReviewPayload } from "./review";
 import { buildNotificationCenter } from "./notifications";
 import { buildDisputeReview } from "./disputes";
@@ -43,7 +40,7 @@ import {
   CC_SEARCH_SELECT,
   mpAddXp,
   mpRemoveXp,
-  mpComplete,
+  mpClear,
   mpRemind,
   mpWarn,
   audPage,
@@ -99,7 +96,7 @@ export async function openCommandCenter(interaction: ChatInputCommandInteraction
   await interaction.editReply({
     content:
       `🛰️ Live command center posted in <#${channelId}>. ` +
-      `It survives restarts and refreshes automatically as XP, reminders and warnings change.`,
+      `It survives restarts and refreshes as reminders, warnings, and disputes change.`,
   });
 }
 
@@ -130,14 +127,11 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
       await interaction.editReply(await buildOverviewPayload(clan, interaction.guild));
       return;
     case "warnings":
-      await interaction.editReply(await buildDashboardPayload(clan, "warned", 0, interaction.guild));
+      await interaction.editReply(await buildWarnBoardPayload(clan, 0, interaction.guild, "active"));
       return;
     case "cat": {
-      if (arg === "missed") {
-        await interaction.editReply(await missedReply(clan, interaction.guild));
-        return;
-      }
-      const filter = (arg ?? "attention") as DashFilter;
+      // Older panels had a "Missed" button. That quota list is gone — open active warnings.
+      const filter = (arg === "missed" ? "attention" : (arg ?? "attention")) as DashFilter;
       await interaction.editReply(await buildDashboardPayload(clan, filter, 0, interaction.guild));
       return;
     }
@@ -162,7 +156,7 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
       return;
     case "search":
       await interaction.editReply({
-        content: "🔎 Pick a member to open their progress:",
+        content: "🔎 Pick a member to open their record:",
         components: [
           new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
             new UserSelectMenuBuilder()
@@ -192,81 +186,6 @@ export async function handleCommandCenterSelect(interaction: UserSelectMenuInter
 }
 
 /* ------------------------------------------------------------ sub-views */
-
-/** Who still owes XP today — the live "missed" list. */
-async function missedReply(clan: Clan, guild?: import("discord.js").Guild | null) {
-  const members = await listTracked(clan, guild);
-  const missing = await membersMissingToday(clan, members);
-  if (!missing.length) {
-    return {
-      content: `✅ Everyone has hit today's target${clan.dailyTarget > 0 ? ` of **${clan.dailyTarget.toLocaleString()} ${clan.activityName}**` : ""}.`,
-    };
-  }
-  const lines = missing
-    .slice(0, 40)
-    .map(
-      (m) =>
-        `• <@${m.member.userId}> — **${m.todayAmount.toLocaleString()}** / ${clan.dailyTarget > 0 ? clan.dailyTarget.toLocaleString() : "—"}`
-    );
-  return {
-    content:
-      `🕐 **${missing.length}** member(s) haven't hit today's target:\n${lines.join("\n")}` +
-      (missing.length > 40 ? `\n…and ${missing.length - 40} more` : ""),
-    allowedMentions: { parse: [] as never[] },
-  };
-}
-
-/** A live "what needs action" feed — the closest thing to a notification center. */
-async function notificationsReply(clan: Clan, guild?: import("discord.js").Guild | null) {
-  const members = await listTracked(clan, guild);
-  const attention = reminderTargets(clan, members);
-  const warnable = warningTargets(clan, members);
-  const missing = await membersMissingToday(clan, members);
-
-  const embed = new EmbedBuilder()
-    .setColor(attention.length || warnable.length || missing.length ? 0xfaa61a : 0x3ba55d)
-    .setTitle(`🔔 Attention feed — ${clan.clanName}`)
-    .setDescription(
-      attention.length || warnable.length || missing.length
-        ? "Everything below still needs a decision. Use the buttons on the panel to act."
-        : "✨ Nothing needs attention right now."
-    )
-    .addFields(
-      {
-        name: `🚨 Warning-eligible (${warnable.length})`,
-        value: warnable.length
-          ? warnable
-              .slice(0, 8)
-              .map((m) => `• <@${m.userId}> — ${formatProgress(clan, m)} · ${m.weekReminders} reminder(s)`)
-              .join("\n") + (warnable.length > 8 ? `\n…and ${warnable.length - 8} more` : "")
-          : "_None._",
-        inline: false,
-      },
-      {
-        name: `🔴 Needs progress (${attention.length})`,
-        value: attention.length
-          ? attention
-              .slice(0, 8)
-              .map((m) => `• <@${m.userId}> — ${formatProgress(clan, m)}`)
-              .join("\n") + (attention.length > 8 ? `\n…and ${attention.length - 8} more` : "")
-          : "_None._",
-        inline: false,
-      },
-      {
-        name: `🕐 Missed today (${missing.length})`,
-        value: missing.length
-          ? missing
-              .slice(0, 8)
-              .map((m) => `• <@${m.member.userId}> — ${m.todayAmount.toLocaleString()}`)
-              .join("\n") + (missing.length > 8 ? `\n…and ${missing.length - 8} more` : "")
-          : "_None._",
-        inline: false,
-      }
-    )
-    .setFooter({ text: "Resolved items clear themselves — this feed always reflects live state." });
-
-  return { embeds: [embed], allowedMentions: { parse: [] as never[] } };
-}
 
 /** A compact member command-center summary shown from Search. */
 export async function memberSummary(clan: Clan, userId: string) {
@@ -317,7 +236,7 @@ export async function memberSummary(clan: Clan, userId: string) {
   const actions = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
     new ButtonBuilder().setCustomId(mpAddXp(userId)).setLabel("➕ Add XP").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(mpRemoveXp(userId)).setLabel("➖ Remove XP").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(mpComplete(userId)).setLabel("✅ Complete").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(mpClear(userId)).setLabel("🧹 Clear warning").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(mpRemind(userId)).setLabel("🔔 Remind").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(mpWarn(userId)).setLabel("⚠️ Warn").setStyle(ButtonStyle.Danger)
   );

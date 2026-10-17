@@ -64,11 +64,12 @@ export function reviewComponents(opts: {
 
 export const DASH_FILTERS = [
   { value: "all", label: "All tracked", emoji: "📋" },
-  { value: "attention", label: "Needs attention", emoji: "🔴" },
-  { value: "complete", label: "Complete", emoji: "✅" },
+  { value: "attention", label: "Active warnings", emoji: "⚠️" },
+  { value: "rolehold", label: "Warning role", emoji: "🔗" },
+  { value: "complete", label: "Activity done", emoji: "✅" },
   { value: "clean", label: "Never warned", emoji: "💎" },
-  { value: "reminded", label: "Reminded this week", emoji: "🔔" },
-  { value: "warned", label: "Warned this week", emoji: "⚠️" },
+  { value: "reminded", label: "Reminded", emoji: "🔔" },
+  { value: "warned", label: "Warned recently", emoji: "🕐" },
   { value: "exempt", label: "Exempt", emoji: "🛡️" },
   { value: "leave", label: "On leave", emoji: "🌙" },
 ] as const;

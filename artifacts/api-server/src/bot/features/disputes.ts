@@ -15,7 +15,7 @@ import {
 } from "discord.js";
 import type { Clan, Dispute, DisputeEvidence, DisputeType } from "@workspace/db";
 import { getClan, isOfficer, updateClan } from "../services/config";
-import { listActive, removeWarning } from "../services/warnings";
+import { listActive, removeWarning, clearWarningPanel } from "../services/warnings";
 import {
   openDisputeTicket,
   listDisputes,
@@ -42,12 +42,12 @@ import {
 import { notConfiguredMessage } from "./xp";
 
 /**
- * XP dispute tickets.
+ * Dispute tickets.
  *
  * Members open a private channel with /dispute (native Discord attachment for
  * evidence — never a pasted URL). Staff Resolve / Reject / Close inside that
- * channel. Deciding never lifts enforcement by itself — Remove warning is
- * separate when needed.
+ * channel. Resolving a dispute does not clear the warning by itself —
+ * **Clear warning** does, and the member sees that warning come off.
  */
 
 const STATUS_BADGE: Record<string, string> = {
@@ -144,21 +144,8 @@ export async function openDisputeCommand(interaction: ChatInputCommandInteractio
   const warningId = interaction.options.getInteger("warning_id");
   const evidenceAtt = interaction.options.getAttachment("evidence");
 
-  // Reject non-image attachments politely but still allow common proof formats.
-  if (evidenceAtt) {
-    const ct = (evidenceAtt.contentType ?? "").toLowerCase();
-    const ok =
-      ct.startsWith("image/") ||
-      ct === "application/pdf" ||
-      /\.(png|jpe?g|gif|webp|pdf)$/i.test(evidenceAtt.name ?? "");
-    if (!ok) {
-      await interaction.editReply({
-        content:
-          "Evidence must be an **image** (or PDF) uploaded from your device via the **evidence** option — not a link.",
-      });
-      return;
-    }
-  }
+  // Any file uploaded with the command is evidence. Links are not accepted —
+  // Discord's attachment option is a real upload from the member's device.
 
   // If they forgot warning_id for a warning dispute, list their active tickets.
   if (disputeType === "warning" && !warningId) {
@@ -371,7 +358,7 @@ export async function handleDisputeReviewSelect(interaction: StringSelectMenuInt
     actionRow(
       v2Button({
         customId: disputeRemoveWarning(d.id),
-        label: "Remove linked warning",
+        label: "Clear warning",
         style: BS.Danger,
         disabled: !d.warningId,
       }),
@@ -467,7 +454,7 @@ export async function handleDisputeButton(interaction: ButtonInteraction) {
             ? " Channel locked — use **Transcript** / **Delete** when ready. The channel was not deleted."
             : "") +
           (decision === "resolved" && d.warningId
-            ? "\n_Tip: use **Remove linked warning** from `/disputes` if enforcement should be lifted._"
+            ? "\n_Tip: use **Clear warning** if this dispute should take the warning off their record._"
             : ""),
       });
       // Swap the opener message buttons to Transcript / Delete when editable.
@@ -561,10 +548,12 @@ export async function handleDisputeButton(interaction: ButtonInteraction) {
         // Warning was removed; transcript failure shouldn't undo that.
       }
     }
+    const panel = await clearWarningPanel(interaction.guild!, clan, d.userId);
     await interaction.editReply({
       content: removed
-        ? `✅ Removed warning #${d.warningId} and resolved dispute #${did}.`
-        : `Warning #${d.warningId} was already removed; dispute #${did} marked resolved.`,
+        ? `Cleared warning **#${d.warningId}** and resolved dispute **#${did}**.`
+        : `Warning **#${d.warningId}** was already cleared. Dispute **#${did}** is resolved.`,
+      ...panel,
     });
     return;
   }

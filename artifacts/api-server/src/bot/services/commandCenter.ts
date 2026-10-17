@@ -21,18 +21,11 @@ import { PALETTE } from "../canvas/palette";
 import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
 import { getClan } from "./config";
-import {
-  listTracked,
-  snapshotFrom,
-  reminderTargets,
-  warningTargets,
-  type WeeklySnapshot,
-} from "./progress";
-import { membersMissingToday } from "./xpLedger";
+import { listTracked, snapshotFrom, type WeeklySnapshot } from "./progress";
 import { unreadCount } from "./notifications";
 import { openDisputeCount } from "./disputes";
 import { openTicketCount } from "./tickets";
-import { weekKey, weekRangeLabel, discordRelative, relative, nextWeeklyReset, formatInZone } from "./time";
+import { weekKey, weekRangeLabel, relative } from "./time";
 import {
   CC_REFRESH,
   CC_MANAGE,
@@ -98,11 +91,11 @@ async function clearStaffMessage(guildId: string): Promise<void> {
 
 export interface CommandCenterStats {
   snap: WeeklySnapshot;
-  attention: number; // still short of goal, active (remind-eligible)
-  warnable: number; // warning-eligible this week
-  reminded: number; // reminded at least once this week
-  warned: number; // warned at least once this week
-  missedToday: number; // haven't met today's daily target
+  attention: number; // members who currently have an active warning
+  warnable: number; // members at 2+ active warnings (warning role)
+  reminded: number; // reminded at least once this period
+  warned: number; // warned at least once this period
+  missedToday: number; // kept for older callers; no longer a quota list
   activeWarnings: number; // open warning rows across the guild
   unreadNotifs: number; // unread items in the notification center
   openDisputes: number; // disputes awaiting a decision
@@ -118,11 +111,10 @@ export async function commandCenterStats(
   const wk = weekKey(clan);
   const members = await listTracked(clan, guild);
   const snap = snapshotFrom(clan, members);
-  const attention = reminderTargets(clan, members).length;
-  const warnable = warningTargets(clan, members).length;
+  const attention = members.filter((m) => (m.warningsCount ?? 0) > 0).length;
+  const warnable = members.filter((m) => (m.warningsCount ?? 0) >= 2).length;
   const reminded = members.filter((m) => m.weekKey === wk && m.weekReminders > 0).length;
   const warned = members.filter((m) => m.weekKey === wk && m.weekWarnings > 0).length;
-  const missing = await membersMissingToday(clan, members);
 
   const [{ count: activeWarnings = 0 } = { count: 0 }] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -150,7 +142,7 @@ export async function commandCenterStats(
     warnable,
     reminded,
     warned,
-    missedToday: missing.length,
+    missedToday: 0,
     activeWarnings,
     unreadNotifs,
     openDisputes,
@@ -222,32 +214,30 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
   const needsActionParts = [
     s.unreadNotifs ? `${s.unreadNotifs} unread` : null,
     s.openDisputes ? `${s.openDisputes} disputes` : null,
-    s.attention ? `${s.attention} attention` : null,
-    s.missedToday ? `${s.missedToday} missed` : null,
-    s.warnable ? `${s.warnable} warn-eligible` : null,
-    s.activeWarnings ? `${s.activeWarnings} warnings` : null,
+    s.attention ? `${s.attention} active warnings` : null,
+    s.warnable ? `${s.warnable} on the warning role` : null,
   ].filter(Boolean) as string[];
   const needsAction = needsActionParts.length > 0;
 
   const png = await renderOffThread("commandCenter", {
     communityName: clan.clanName,
     weekRange: weekRangeLabel(s.snap.weekKey),
-    deadline: `resets ${formatInZone(nextWeeklyReset(clan), clan, "ddd HH:mm")}`,
+    deadline: "Warnings stay until staff clear them",
     completionPct: pct,
     completed: s.snap.completed,
     active: s.snap.active,
-    needsActionLabel: needsAction ? `Needs a look: ${needsActionParts.join(" · ")}` : "All clear — nothing needs a message",
+    needsActionLabel: needsAction ? needsActionParts.join(" · ") : "No active warnings",
     tiles: [
-      { label: "Complete", value: s.snap.completed, tone: "good" },
-      { label: "Attention", value: s.attention, tone: "warn" },
-      { label: "Missed today", value: s.missedToday, tone: "bad" },
-      { label: "Warnings", value: s.activeWarnings, tone: "bad" },
+      { label: "Active warnings", value: s.attention, tone: s.attention ? "bad" : "good" },
+      { label: "Warning role", value: s.warnable, tone: s.warnable ? "bad" : "neutral" },
+      { label: "Warning rows", value: s.activeWarnings, tone: s.activeWarnings ? "bad" : "neutral" },
       { label: "Reminded", value: s.reminded, tone: "neutral" },
-      { label: "Warn-eligible", value: s.warnable, tone: "bad" },
-      { label: "Unread", value: s.unreadNotifs, tone: "warn" },
-      { label: "Disputes", value: s.openDisputes, tone: "bad" },
+      { label: "Disputes", value: s.openDisputes, tone: s.openDisputes ? "bad" : "neutral" },
+      { label: "Tickets", value: s.openTickets, tone: "neutral" },
+      { label: "Unread", value: s.unreadNotifs, tone: s.unreadNotifs ? "warn" : "neutral" },
+      { label: "Tracked", value: s.snap.tracked, tone: "neutral" },
     ],
-    footer: `${s.snap.tracked} tracked   •   ${s.snap.exempt} exempt   •   ${s.snap.onLeave} on leave   •   ${s.openTickets} tickets`,
+    footer: `${s.snap.tracked} tracked   •   ${s.snap.exempt} exempt   •   ${s.snap.onLeave} on leave   •   warning role at 2 active`,
   });
   const file = new AttachmentBuilder(png, { name: "command-center.png" });
 
@@ -255,8 +245,8 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     .setColor(needsAction ? parseInt(PALETTE.amber.slice(1), 16) : parseInt(PALETTE.green.slice(1), 16))
     .setImage("attachment://command-center.png")
     .setDescription(
-      `**1** Check who needs a look. **2** Open a button. **3** Message them with **/xpwarn**.\n` +
-      `Recent activity · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
+      `**1** See who has an active warning. **2** Open a button. **3** Clear it, or message them with **/xpwarn**.\n` +
+      `Recent activity\n` +
         (s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._")
     )
     .setFooter({ text: "Live dashboard · refreshes automatically when data changes" })
@@ -269,8 +259,8 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     // Category shortcuts — jump straight into the filtered roster.
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(CC_MANAGE, "🎛️ Member editor", ButtonStyle.Primary),
-      b(ccCategory("attention"), `🔴 Attention${s.attention ? ` (${s.attention})` : ""}`, s.attention ? ButtonStyle.Danger : ButtonStyle.Secondary, s.attention === 0 && s.snap.tracked === 0),
-      b(ccCategory("missed"), `🕐 Missed${s.missedToday ? ` (${s.missedToday})` : ""}`, ButtonStyle.Secondary, s.missedToday === 0),
+      b(ccCategory("attention"), `⚠️ Active${s.attention ? ` (${s.attention})` : ""}`, s.attention ? ButtonStyle.Danger : ButtonStyle.Secondary, s.attention === 0),
+      b(ccCategory("rolehold"), `🔗 Warning role${s.warnable ? ` (${s.warnable})` : ""}`, s.warnable ? ButtonStyle.Danger : ButtonStyle.Secondary, s.warnable === 0),
       b(CC_WARNINGS, `⚠️ Warnings${s.activeWarnings ? ` (${s.activeWarnings})` : ""}`, s.activeWarnings ? ButtonStyle.Danger : ButtonStyle.Secondary)
     ),
     // Hubs.

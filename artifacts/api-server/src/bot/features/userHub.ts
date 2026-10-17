@@ -18,6 +18,7 @@ import {
 import type { Clan, ClanMember } from "@workspace/db";
 import { getClan, isOfficer, getMember } from "../services/config";
 import { listActive, listHistory, countLifetime } from "../services/warnings";
+import { sanitizeMemberReason } from "../services/tracking";
 import { listRecentReminders } from "../services/reminders";
 import { listMemberNotes } from "../services/notes";
 import { memberHistory, formatProgress, statusOf } from "../services/progress";
@@ -37,6 +38,7 @@ import {
   hubHistory,
   hubRefresh,
   warnRemoveSelect,
+  mpClear,
   parseId,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -140,7 +142,7 @@ export async function buildMemberHub(
         new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(warnRemoveSelect(target.id))
-            .setPlaceholder("Remove a warning…")
+            .setPlaceholder("Clear an active warning…")
             .addOptions(
               warns.slice(0, 25).map((w) => ({
                 label: `#${w.id} — ${w.reason.slice(0, 80)}`,
@@ -160,6 +162,10 @@ export async function buildMemberHub(
           .setCustomId(hubHistory(target.id))
           .setStyle(ButtonStyle.Secondary)
           .setLabel("Activity history"),
+        new ButtonBuilder()
+          .setCustomId(mpClear(target.id))
+          .setStyle(ButtonStyle.Danger)
+          .setLabel("Clear warning"),
         new ButtonBuilder()
           .setCustomId(hubRefresh(target.id))
           .setStyle(ButtonStyle.Primary)
@@ -189,8 +195,36 @@ export async function buildMemberHub(
     );
   }
 
-  // Light officer note strip under the card (canvas stays focused on history).
+  // Active warnings stay visible until staff clear them after a dispute.
   const embeds: EmbedBuilder[] = [];
+  if (warns.length) {
+    const face = member?.robloxAvatarUrl || target.avatarUrl || null;
+    embeds.push(
+      new EmbedBuilder()
+        .setColor(0xed4245)
+        .setAuthor({
+          name: opts.officerView ? "Active warnings" : "Your active warnings",
+          iconURL: target.avatarUrl || undefined,
+        })
+        .setThumbnail(face)
+        .setDescription(
+          (
+            warns
+              .slice(0, 8)
+              .map((w) => {
+                const reason = opts.officerView ? w.reason : sanitizeMemberReason(w.reason);
+                return `**#${w.id}** — ${reason.slice(0, 140)}`;
+              })
+              .join("\n") +
+            (opts.officerView
+              ? "\n\nUse **Clear warning** to take one off. It stays active until you do."
+              : "\n\nThese stay until you run **/dispute**, add your evidence in the ticket, and staff clear the warning.")
+          ).slice(0, 3900)
+        )
+    );
+  }
+
+  // Light officer note strip under the card (canvas stays focused on history).
   if (opts.officerView && (notes.length || reminders.length)) {
     const e = new EmbedBuilder().setColor(0x2b2d31);
     if (reminders.length) {

@@ -1,12 +1,23 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember, Warning } from "@workspace/db";
-import { eq, and, isNull, desc, gte, lt, sql, inArray } from "drizzle-orm";
+import { eq, and, isNull, desc, gte, sql, inArray } from "drizzle-orm";
 import PQueue from "p-queue";
-import { EmbedBuilder, AttachmentBuilder, type Client, type Guild, type User } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  AttachmentBuilder,
+  type BaseMessageOptions,
+  type Client,
+  type Guild,
+  type MessageActionRowComponentBuilder,
+  type User,
+} from "discord.js";
 import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser, getMember } from "./config";
 import { logAction, sendLog, staffLog } from "./logging";
-import { recordWeeklyWarning, isRequirementSatisfied, listTracked } from "./progress";
+import { recordWeeklyWarning } from "./progress";
 import {
   memberWarningBody,
   memberWarningDmContent,
@@ -22,6 +33,8 @@ import {
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
 import { renderOffThread } from "../canvas/render-pool";
+import { mpClearDo } from "../ui/ids";
+import { shouldHoldWarningRole, WARNING_ROLE_ACTIVE_COUNT } from "./warningRole";
 
 /** Live check: exempt flag OR configured exempt/leave roles on the Discord member. */
 export async function isImmuneFromEnforcement(
@@ -108,6 +121,10 @@ export interface IssueWarningInput {
 export interface IssueWarningResult {
   warning: Warning;
   activeCount: number;
+  /** True only when this warning is what turned the warning role on. */
+  roleApplied: boolean;
+  /** Whether the member holds the warning role after this warning. */
+  warningRoleOn: boolean;
 }
 
 /**
@@ -164,8 +181,7 @@ function memberWarningEmbed(
   memberReason: string,
   warningNumber: number | null,
   faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null },
-  categoryLabel?: string | null,
-  clanLogoUrl?: string | null
+  categoryLabel?: string | null
 ): EmbedBuilder {
   const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
   const robloxUrl = faces?.robloxAvatarUrl || null;
@@ -178,7 +194,6 @@ function memberWarningEmbed(
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(memberWarningBody(memberReason, warningNumber, categoryLabel))
     .setTimestamp();
-  if (clanLogoUrl) embed.setImage(clanLogoUrl);
   if (warningNumber) embed.setFooter({ text: `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}` });
   return embed;
 }
@@ -237,15 +252,15 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     target.displayAvatarURL({ size: 256, extension: "png" })
   );
 
-  // Assign configured warning roles (best-effort).
-  if (clan.warningRoleIds.length) {
-    try {
-      const gm = await guild.members.fetch(target.id).catch(() => null);
-      if (gm) await gm.roles.add(clan.warningRoleIds).catch(() => {});
-    } catch (err) {
-      logger.warn({ err }, "Failed to assign warning roles");
-    }
-  }
+  const roleState = await syncWarningRole({
+    guild,
+    clan,
+    userId: target.id,
+    username: target.username,
+    activeCount,
+    actorId: input.moderatorId,
+    actorUsername: input.moderatorUsername,
+  });
 
   const deliverChannel = input.deliver?.channel ?? true;
   const deliverDm = input.deliver?.dm ?? clan.dmOnWarn;
@@ -283,8 +298,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           memberFacingReason,
           warningNumber,
           faces,
-          categoryLabel,
-          clan.clanLogoUrl
+          categoryLabel
         );
         const ping =
           `⚠️ <@${target.id}> — you missed your ${noun}. This is a warning` +
@@ -333,8 +347,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       memberFacingReason,
       warningNumber,
       faces,
-      categoryLabel,
-      clan.clanLogoUrl
+      categoryLabel
     );
     try {
       await target.send({
@@ -478,7 +491,78 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     });
   }
 
-  return { warning: warning!, activeCount };
+  return {
+    warning: warning!,
+    activeCount,
+    roleApplied: roleState.changed && roleState.hasRole,
+    warningRoleOn: roleState.hasRole,
+  };
+}
+
+/**
+ * Give or take the configured warning role based on active warning count.
+ * The role turns on at {@link WARNING_ROLE_ACTIVE_COUNT} and comes off below that.
+ */
+export async function syncWarningRole(opts: {
+  guild: Guild;
+  clan: Clan;
+  userId: string;
+  username: string;
+  activeCount: number;
+  actorId: string;
+  actorUsername: string;
+}): Promise<{ hasRole: boolean; changed: boolean }> {
+  const { guild, clan, userId, activeCount } = opts;
+  if (!clan.warningRoleIds.length) return { hasRole: false, changed: false };
+
+  const shouldHave = shouldHoldWarningRole(activeCount);
+  const gm = await guild.members.fetch(userId).catch(() => null);
+  if (!gm) return { hasRole: false, changed: false };
+
+  const has = clan.warningRoleIds.some((id) => gm.roles.cache.has(id));
+  if (shouldHave === has) return { hasRole: has, changed: false };
+
+  if (shouldHave) {
+    await gm.roles.add(clan.warningRoleIds).catch((err) => {
+      logger.warn({ err, userId }, "Failed to assign warning role");
+    });
+  } else {
+    await gm.roles.remove(clan.warningRoleIds).catch((err) => {
+      logger.warn({ err, userId }, "Failed to remove warning role");
+    });
+  }
+
+  const hasRole = clan.warningRoleIds.some((id) => gm.roles.cache.has(id));
+
+  await staffLog({
+    client: guild.client,
+    clan,
+    action: shouldHave ? "warning_role_applied" : "warning_role_removed",
+    title: shouldHave ? "🔗 Warning role applied" : "✅ Warning role removed",
+    description: shouldHave
+      ? `<@${userId}> reached **${WARNING_ROLE_ACTIVE_COUNT}** active warnings — warning role applied by <@${opts.actorId}>.`
+      : `<@${userId}> is below **${WARNING_ROLE_ACTIVE_COUNT}** active warnings — warning role removed by <@${opts.actorId}>.`,
+    color: shouldHave ? 0xed4245 : 0x3ba55d,
+    actorId: opts.actorId,
+    actorUsername: opts.actorUsername,
+    targetUserId: userId,
+    targetUsername: opts.username,
+    fields: [
+      { name: "Active warnings", value: String(activeCount), inline: true },
+      {
+        name: "Roles",
+        value: clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "—",
+        inline: true,
+      },
+    ],
+    auditDetails: {
+      activeCount,
+      threshold: WARNING_ROLE_ACTIVE_COUNT,
+      reason: shouldHave ? "active_warning_threshold" : "below_active_warning_threshold",
+    },
+  });
+
+  return { hasRole, changed: true };
 }
 
 /**
@@ -598,7 +682,6 @@ export async function postWarningAnnouncement(opts: {
       .setAuthor({ name: `⚠️ WARNING • ${clan.clanName}` })
       .setDescription(memberWarningBody(opts.reason, null, clan.activityName))
       .setTimestamp();
-    if (clan.clanLogoUrl) embed.setImage(clan.clanLogoUrl);
     await channel.send({
       content: `⚠️ <@&${opts.roleId}>`,
       embeds: [embed],
@@ -643,30 +726,33 @@ export interface EnforcementRankRow {
 export async function rankByWarnings(
   guildId: string,
   limit = 10,
-  userIds?: string[]
+  userIds?: string[],
+  mode: "active" | "lifetime" = "lifetime"
 ): Promise<EnforcementRankRow[]> {
   if (userIds && userIds.length === 0) return [];
   const where = userIds
     ? and(eq(warningsTable.guildId, guildId), inArray(warningsTable.userId, userIds))
     : eq(warningsTable.guildId, guildId);
+  const activeExpr = sql`sum(case when ${warningsTable.removedAt} is null then 1 else 0 end)`;
   const rows = await db
     .select({
       userId: warningsTable.userId,
       username: sql<string>`max(${warningsTable.username})`,
       count: sql<number>`count(*)::int`.mapWith(Number),
-      active: sql<number>`sum(case when ${warningsTable.removedAt} is null then 1 else 0 end)::int`.mapWith(Number),
+      active: sql<number>`${activeExpr}::int`.mapWith(Number),
     })
     .from(warningsTable)
     .where(where)
     .groupBy(warningsTable.userId)
-    .orderBy(desc(sql`count(*)`))
+    .orderBy(mode === "active" ? desc(activeExpr) : desc(sql`count(*)`), desc(sql`count(*)`))
     .limit(limit);
-  return rows.map((r) => ({
+  const mapped = rows.map((r) => ({
     userId: r.userId,
     username: r.username || "member",
     count: Number(r.count) || 0,
     active: Number(r.active) || 0,
   }));
+  return mode === "active" ? mapped.filter((r) => r.active > 0) : mapped;
 }
 
 /** Lifetime warnings (active + removed) — the history officers review. */
@@ -796,34 +882,15 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
 
   const activeCount = await countActive(guild.id, warning.userId);
 
-  // Clear warning roles once no active warnings remain.
-  if (activeCount === 0 && clan.warningRoleIds.length) {
-    const gm = await guild.members.fetch(warning.userId).catch(() => null);
-    if (gm) {
-      await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-      await staffLog({
-        client: guild.client,
-        clan,
-        action: "warning_role_removed",
-        title: "✅ Warning role removed",
-        description: `<@${warning.userId}> no longer has active warnings — warning role cleared by <@${input.moderatorId}>.`,
-        color: 0x3ba55d,
-        actorId: input.moderatorId,
-        actorUsername: input.moderatorUsername,
-        targetUserId: warning.userId,
-        targetUsername: warning.username,
-        fields: [
-          { name: "Active warnings", value: "0", inline: true },
-          {
-            name: "Roles",
-            value: clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "—",
-            inline: true,
-          },
-        ],
-        auditDetails: { warningId, reason: "last_active_warning_removed" },
-      });
-    }
-  }
+  await syncWarningRole({
+    guild,
+    clan,
+    userId: warning.userId,
+    username: warning.username,
+    activeCount,
+    actorId: input.moderatorId,
+    actorUsername: input.moderatorUsername,
+  });
 
   await staffLog({
     client: guild.client,
@@ -846,177 +913,155 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
   scheduleDashboardRefresh(guild.id);
   await resolveRelated(guild.id, "warning", warningId);
   await resolveRelated(guild.id, "escalation", warningId);
+  await notifyWarningCleared(guild, clan, warning, activeCount).catch((err) => {
+    logger.warn({ err, warningId }, "Cleared-warning notice failed");
+  });
 
   return warning;
 }
 
 /**
- * Auto-remove the warning **role** on the schedule a server owner configured.
- *
- * When `clan.warningRemovalHours` is > 0, members whose oldest *active* warning
- * is older than that many hours lose the warning role. Warning rows are NOT
- * expired — history, disputes, and the leaderboard keep them until staff
- * explicitly removes a warning.
+ * Retired. Warnings and the warning role are not on a timer.
+ * The role turns on at 2 active warnings and comes off when staff clear below that.
  */
-export async function autoExpireWarnings(client: Client, clan: Clan): Promise<number> {
-  if (!clan.warningRemovalHours || clan.warningRemovalHours <= 0) return 0;
-  if (!clan.warningRoleIds.length) return 0;
-
-  const cutoff = new Date(Date.now() - clan.warningRemovalHours * 3600_000);
-  const stale = await db
-    .select()
-    .from(warningsTable)
-    .where(
-      and(
-        eq(warningsTable.guildId, clan.guildId),
-        isNull(warningsTable.removedAt),
-        lt(warningsTable.issuedAt, cutoff)
-      )
-    );
-  if (!stale.length) return 0;
-
-  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
-  if (!guild) return 0;
-
-  const userIds = [...new Set(stale.map((w) => w.userId))];
-  let cleared = 0;
-  for (const userId of userIds) {
-    const gm = await guild.members.fetch(userId).catch(() => null);
-    if (!gm) continue;
-    if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) continue;
-    await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-    cleared++;
-    await staffLog({
-      client,
-      clan,
-      action: "warning_role_auto_cleared_timer",
-      title: "⏱️ Warning role auto-removed (timer)",
-      description: `<@${userId}> hit the **${clan.warningRemovalHours}h** warning-role timer. Role cleared; warning history kept.`,
-      color: 0xfaa61a,
-      actorId: client.user?.id ?? "bot",
-      actorUsername: client.user?.username ?? "bot",
-      targetUserId: userId,
-      targetUsername: gm.user.username,
-      fields: [
-        { name: "Hours", value: String(clan.warningRemovalHours), inline: true },
-        {
-          name: "Roles",
-          value: clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "—",
-          inline: true,
-        },
-      ],
-      auditDetails: { hours: clan.warningRemovalHours, reason: "warningRemovalHours" },
-    });
-  }
-
-  if (cleared > 0) {
-    logger.info(
-      {
-        event: "warning_roles_auto_cleared",
-        guildId: clan.guildId,
-        cleared,
-        hours: clan.warningRemovalHours,
-      },
-      `Auto-cleared warning role(s) for ${cleared} member(s) (warnings kept for history/disputes)`
-    );
-  }
-  return cleared;
+export async function autoExpireWarnings(_client: Client, _clan: Clan): Promise<number> {
+  return 0;
 }
 
 /**
- * Clear warning roles for members who have **satisfied the configured
- * activity requirement** for the current tracking period.
- *
- * Roles only — warning records stay until an officer removes them. That keeps
- * dispute tickets and lifetime history intact.
+ * Retired. Meeting an activity goal does not lift the warning role.
+ * Staff clear warnings, usually after a dispute.
  */
 export async function clearWarningRolesForSatisfiedMembers(
-  client: Client,
-  clan: Clan
+  _client: Client,
+  _clan: Clan
 ): Promise<number> {
-  if (!clan.warningRoleIds.length) return 0;
+  return 0;
+}
 
-  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
-  if (!guild) return 0;
+/** Retired. Activity progress does not remove the warning role. */
+export async function clearWarningRoleIfRequirementMet(
+  _guild: Guild,
+  _clan: Clan,
+  _userId: string
+): Promise<boolean> {
+  return false;
+}
 
-  const members = await listTracked(clan, guild);
-  let cleared = 0;
 
-  for (const member of members) {
-    if (!isRequirementSatisfied(clan, member)) continue;
-    if (member.exempt || member.onLeave) continue;
+/** Tell the member their warning is off the active list. Roblox face, else Discord. */
+async function notifyWarningCleared(
+  guild: Guild,
+  clan: Clan,
+  warning: Warning,
+  activeCount: number
+): Promise<void> {
+  const member = await getMember(guild.id, warning.userId);
+  const user = await guild.client.users.fetch(warning.userId).catch(() => null);
+  const discordUrl =
+    user?.displayAvatarURL({ size: 256, extension: "png" }) ?? member?.avatarUrl ?? null;
+  const faces = cardAvatarPair(member, discordUrl);
+  const embed = new EmbedBuilder()
+    .setColor(0x3ba55d)
+    .setAuthor({
+      name: `Warning cleared · ${warning.username}`,
+      iconURL: faces.discordAvatarUrl ?? undefined,
+    })
+    .setThumbnail(faces.primaryAvatarUrl)
+    .setDescription(
+      `Warning **#${warning.id}** is no longer active.` +
+        (warning.categoryLabel ? `\nIt was about **${warning.categoryLabel}**.` : "")
+    )
+    .addFields(
+      {
+        name: "What it said",
+        value: sanitizeMemberReason(warning.reason).slice(0, 1024) || "—",
+      },
+      { name: "Active warnings left", value: String(activeCount), inline: true }
+    )
+    .setTimestamp();
 
-    const gm = await guild.members.fetch(member.userId).catch(() => null);
-    if (!gm) continue;
-    if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) continue;
-    await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-    cleared++;
-    await staffLog({
-      client,
-      clan,
-      action: "warning_role_cleared_on_requirement",
-      title: "✅ Warning role cleared (requirement met)",
-      description: `<@${member.userId}> met the ${periodAdjective(clan)} requirement — warning role removed. Warnings kept for history.`,
-      color: 0x3ba55d,
-      actorId: client.user?.id ?? "bot",
-      actorUsername: client.user?.username ?? "bot",
-      targetUserId: member.userId,
-      targetUsername: member.username,
-      fields: [
-        {
-          name: "Roles",
-          value: clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "—",
-          inline: true,
-        },
-      ],
-      auditDetails: { reason: "requirement_satisfied", period: periodAdjective(clan) },
+  if (user) {
+    try {
+      await user.send({ embeds: [embed] });
+      return;
+    } catch {
+      // DMs closed — fall through to the warning channel.
+    }
+  }
+  if (!clan.warningChannelId) return;
+  const channel = await guild.client.channels.fetch(clan.warningChannelId).catch(() => null);
+  if (channel?.isTextBased() && "send" in channel) {
+    await channel.send({
+      content: `<@${warning.userId}>`,
+      embeds: [embed],
+      allowedMentions: { users: [warning.userId] },
     });
   }
-
-  if (cleared > 0) {
-    logger.info(
-      {
-        event: "warning_roles_cleared_on_requirement",
-        guildId: clan.guildId,
-        cleared,
-        period: periodAdjective(clan),
-      },
-      `Cleared warning role(s) for ${cleared} member(s) who met the ${periodAdjective(clan)} requirement (warnings kept)`
-    );
-  }
-  return cleared;
 }
 
 /**
- * After a single member's progress is updated: if they just satisfied the
- * requirement, strip the warning **role** only. Warning rows stay for history
- * and disputes until staff removes them.
+ * Live staff embed of a member's active warnings, with a button that clears
+ * each one immediately. The reply is edited in place after a clear.
  */
-export async function clearWarningRoleIfRequirementMet(
+export async function clearWarningPanel(
   guild: Guild,
   clan: Clan,
   userId: string
-): Promise<boolean> {
-  if (!clan.warningRoleIds.length) return false;
-  const member = await getMember(clan.guildId, userId);
-  if (!member || !isRequirementSatisfied(clan, member)) return false;
+): Promise<BaseMessageOptions> {
+  const [warns, member] = await Promise.all([
+    listActive(guild.id, userId),
+    getMember(guild.id, userId),
+  ]);
+  const user = await guild.client.users.fetch(userId).catch(() => null);
+  const discordUrl =
+    user?.displayAvatarURL({ size: 256, extension: "png" }) ?? member?.avatarUrl ?? null;
+  const faces = cardAvatarPair(member, discordUrl);
+  const name = member?.displayName || member?.username || user?.username || "Member";
 
-  const gm = await guild.members.fetch(userId).catch(() => null);
-  if (!gm) return false;
-  if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) return false;
-  await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-  await staffLog({
-    client: guild.client,
-    clan,
-    action: "warning_role_cleared_on_requirement",
-    title: "✅ Warning role cleared (requirement met)",
-    description: `<@${userId}> just met the activity requirement — warning role removed.`,
-    color: 0x3ba55d,
-    actorId: guild.client.user?.id ?? "bot",
-    actorUsername: guild.client.user?.username ?? "bot",
-    targetUserId: userId,
-    targetUsername: member.username,
-    auditDetails: { reason: "single_member_requirement_met" },
-  });
-  return true;
+  if (!warns.length) {
+    return {
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x3ba55d)
+          .setAuthor({ name: `${name} — active warnings`, iconURL: faces.discordAvatarUrl ?? undefined })
+          .setThumbnail(faces.primaryAvatarUrl)
+          .setDescription(`<@${userId}> has no active warnings.`),
+      ],
+      components: [],
+    };
+  }
+
+  const shown = warns.slice(0, 5);
+  const roleLine = clan.warningRoleIds.length
+    ? `\nThe warning role turns on at **${WARNING_ROLE_ACTIVE_COUNT}** active warnings` +
+      (shouldHoldWarningRole(warns.length) ? " and is on now." : " and is off right now.")
+    : "";
+
+  const embed = new EmbedBuilder()
+    .setColor(0xed4245)
+    .setAuthor({ name: `${name} — active warnings`, iconURL: faces.discordAvatarUrl ?? undefined })
+    .setThumbnail(faces.primaryAvatarUrl)
+    .setDescription(
+      `**${warns.length}** active. These stay until staff clear them — usually after the member opens **/dispute** and uploads evidence in the ticket.` +
+        roleLine +
+        (warns.length > shown.length ? `\n\nShowing the newest ${shown.length}. Clear one to see the rest.` : "")
+    )
+    .addFields(
+      shown.map((w) => ({
+        name: `#${w.id}${w.categoryLabel ? ` · ${w.categoryLabel}` : ""}`,
+        value: sanitizeMemberReason(w.reason).slice(0, 200) || "—",
+      }))
+    );
+
+  const row = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    shown.map((w) =>
+      new ButtonBuilder()
+        .setCustomId(mpClearDo(w.id))
+        .setLabel(`Clear #${w.id}`)
+        .setStyle(ButtonStyle.Danger)
+    )
+  );
+
+  return { embeds: [embed], components: [row] };
 }

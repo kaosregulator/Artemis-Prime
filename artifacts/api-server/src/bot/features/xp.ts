@@ -17,16 +17,15 @@ import {
   memberHistory,
   effectiveGoal,
   currentProgress,
-  listTracked,
   type ProgressChange,
 } from "../services/progress";
 import { sendReminder, sendBulkReminders, recentReminder } from "../services/reminders";
+import { WARNING_ROLE_ACTIVE_COUNT } from "../services/warningRole";
 import {
   issueWarning,
   sendBulkWarnings,
   postWarningAnnouncement,
   recentWarning,
-  clearWarningRoleIfRequirementMet,
   type WarnDelivery,
 } from "../services/warnings";
 import {
@@ -41,7 +40,6 @@ import {
   recordEntry,
   calendarFor,
   periodTotals,
-  membersMissingToday,
   type EntryMode,
 } from "../services/xpLedger";
 import { openReview } from "./review";
@@ -170,10 +168,6 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   if (change) {
     const res = await applyProgress(clan, identity, change, officer(interaction));
     const line = formatProgress(clan, res.member);
-    // Requirement satisfaction (not mere XP ledger presence) clears the warning role.
-    if (res.completedNow) {
-      await clearWarningRoleIfRequirementMet(interaction.guild, clan, target.id).catch(() => {});
-    }
     await interaction.editReply({
       content:
         `${res.completedNow ? "🎉" : "✅"} **${target.displayName ?? target.username}** — ${line}` +
@@ -231,7 +225,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       await setMemberFlag(clan, identity, "exempt", enabled, officer(interaction));
       await interaction.editReply({
         content: enabled
-          ? `🛡️ **${target.username}** is now exempt from the weekly requirement.`
+          ? `🛡️ **${target.username}** is now exempt.`
           : `🛡️ **${target.username}** is no longer exempt.`,
       });
       return;
@@ -313,8 +307,10 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         message ||
         (member ? staffWarningReason(clan, member) : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
       let activeCount: number;
+      let roleApplied = false;
+      let warningRoleOn = false;
       try {
-        ({ activeCount } = await issueWarning({
+        const issued = await issueWarning({
           client: interaction.client,
           clan,
           guild: interaction.guild,
@@ -324,7 +320,10 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
           reason,
           memberReason: message ? null : memberSafeWarningReason(clan),
           deliver,
-        }));
+        });
+        activeCount = issued.activeCount;
+        roleApplied = issued.roleApplied;
+        warningRoleOn = issued.warningRoleOn;
       } catch (err) {
         await interaction.editReply({
           content: `🛡️ ${err instanceof Error ? err.message : "Couldn't issue that warning."}`,
@@ -335,11 +334,15 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       await interaction.editReply({
         content:
           `⚠️ Warned **${target.username}**${destinationLabel(destination)} — now **${activeCount}** active warning(s).` +
-          (clan.warningRoleIds.length
-            ? `\n🔗 Applied warning role: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ")}`
-            : "\n_Tip: pick a **Warning role** in **/setup → Notifications** to auto-assign one on warn._") +
+          (roleApplied
+            ? `\n🔗 Warning role applied: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ")} (turns on at **${WARNING_ROLE_ACTIVE_COUNT}** active).`
+            : warningRoleOn
+              ? `\n🔗 Warning role stays on.`
+              : clan.warningRoleIds.length
+                ? `\nWarning role turns on at **${WARNING_ROLE_ACTIVE_COUNT}** active warnings (${activeCount} now).`
+                : "\n_Set a **Warning role** in **/setup → Notifications**. It turns on at 2 active warnings._") +
           (wantsChannel && !clan.warningChannelId
-            ? "\n_Tip: set an XP warn channel in **/setup** so warnings post publicly._"
+            ? "\n_Set a warning channel in **/setup** so warnings post in the server._"
             : "") +
           (activeCount >= clan.escalationThreshold
             ? `\n🚨 At ${clan.escalationThreshold}+ active warnings — flag for leadership review.`
@@ -357,11 +360,6 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         return;
       }
       const res = await recordEntry(clan, identity, { date: parsed.date, amount, mode, note }, officer(interaction));
-      // Ledger write alone does not clear the role — only requirement satisfaction does.
-      const memberAfter = await getMember(clan.guildId, target.id);
-      if (memberAfter) {
-        await clearWarningRoleIfRequirementMet(interaction.guild, clan, target.id).catch(() => {});
-      }
       const totals = await periodTotals(clan, target.id);
       const dayLabel = parsed.date === activityDate(clan) ? "today" : `**${parsed.date}**`;
       await interaction.editReply({
@@ -497,7 +495,7 @@ async function handleRoleAction(
       if (mode === "announce") {
         const reason =
           message ||
-          `Members of this role are behind on the ${periodAdjective(clan)} ${clan.activityName} requirement.`;
+          `Activity notice for ${clan.activityName}.`;
         const posted = await postWarningAnnouncement({
           client: interaction.client,
           clan,
@@ -508,7 +506,7 @@ async function handleRoleAction(
         await interaction.editReply({
           content: posted
             ? `⚠️ Pinged <@&${role.id}> in the warn channel.`
-            : "No XP warn channel is set — configure one in **/setup** to post role announcements.",
+            : "No warning channel is set — configure one in **/setup** to post role announcements.",
         });
         return;
       }
@@ -746,43 +744,10 @@ async function handleCalendar(interaction: ChatInputCommandInteraction) {
   });
 }
 
-/** /xp missing [role] — who still owes XP today. */
-async function handleMissing(interaction: ChatInputCommandInteraction<"cached">, clan: Clan) {
-  const role = interaction.options.getRole("role");
-  let members;
-  if (role) {
-    const ids = await roleMemberIdentities(interaction.guild, role.id);
-    members = [];
-    for (const id of ids) {
-      const m = await getMember(clan.guildId, id.userId);
-      if (m) members.push(m);
-    }
-  } else {
-    members = await listTracked(clan, interaction.guild);
-  }
-
-  const missing = await membersMissingToday(clan, members);
-  const scope = role ? ` in <@&${role.id}>` : "";
-  if (!missing.length) {
-    await interaction.editReply({
-      content: `✅ Everyone${scope} has hit today's target${clan.dailyTarget > 0 ? ` of **${clan.dailyTarget.toLocaleString()} ${clan.activityName}**` : ""}.`,
-      allowedMentions: { parse: [] },
-    });
-    return;
-  }
-
-  const targetLabel =
-    clan.dailyTarget > 0 ? `${clan.dailyTarget.toLocaleString()} ${clan.activityName}` : `any ${clan.activityName}`;
-  const lines = missing
-    .slice(0, 40)
-    .map(
-      (m) =>
-        `• <@${m.member.userId}> — **${m.todayAmount.toLocaleString()}** / ${clan.dailyTarget > 0 ? clan.dailyTarget.toLocaleString() : "—"}`
-    );
+/** /xp missing — retired quota list. Point staff at the warning board. */
+async function handleMissing(interaction: ChatInputCommandInteraction<"cached">, _clan: Clan) {
   await interaction.editReply({
     content:
-      `🔎 **${missing.length}** member(s)${scope} haven't hit today's target (${targetLabel}):\n` +
-      `${lines.join("\n")}${missing.length > 40 ? `\n…and ${missing.length - 40} more` : ""}`,
-    allowedMentions: { parse: [] },
+      "There isn't a missed-quota list anymore. Open **/warnboard** to see who has an **active** warning (toggle **Lifetime** for history), or **/warnings** for one member.",
   });
 }

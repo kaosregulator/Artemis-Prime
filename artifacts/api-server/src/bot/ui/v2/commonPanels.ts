@@ -51,21 +51,21 @@ export function helpPanelV2(opts: {
   const sections = opts.officer
     ? [
         ["### Members", "Check yourself with **/warnings**. Challenge a wrong warning with **/dispute**."],
-        ["### Messages", "**/xpwarn** sends reminders or warnings. **/warnboard** ranks who has the most."],
+        ["### Messages", "**/xpwarn** sends reminders or warnings. **/warnboard** toggles active and lifetime."],
         ["### Awards", "**/leaderboard** is clan points — separate from warnings."],
         ["### Setup", "**/setup** configures roles, channels, and cards. **/link** reads the Bloxlink nick."],
         ["### Tools", "**/roblox**, **/scout**, **/market**, **/leveling**."],
       ]
     : [
         ["### Your record", "Open **/warnings** to see standing. Dispute a wrong warning with **/dispute**."],
-        ["### Messages", "A reminder is a nudge. A warning means activity was missed."],
+        ["### Messages", "A reminder is a nudge. An active warning stays until you **/dispute** it and staff clear it. Two active warnings apply the warning role."],
         ["### Awards", "**/leaderboard** shows clan points."],
         ["### Tools", "**/roblox**, **/scout**, and **/market**."],
       ];
 
   const children = [
     textDisplay(`# Help — ${opts.clanName}`),
-    textDisplay(`Tracking **${opts.activityName}** in **${opts.gameName}**.`),
+    textDisplay(`Clan manager for **${opts.gameName}**. Activity (**${opts.activityName}**) still counts toward leveling and the leaderboard.`),
     separator(),
   ];
   for (const [title, body] of sections) {
@@ -203,7 +203,7 @@ export function disputeTicketV2(opts: {
       container({
         accent: V2_ACCENT.info,
         children: [
-          textDisplay(`# XP Dispute #${opts.disputeId}`),
+          textDisplay(`# Dispute #${opts.disputeId}`),
           textDisplay(
             [
               `**Member** ${fmtUser(opts.memberId)}`,

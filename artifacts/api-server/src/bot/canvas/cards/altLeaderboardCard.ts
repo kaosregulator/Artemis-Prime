@@ -248,7 +248,7 @@ export async function renderAltLeaderboardCard(
 
   if (!view.rows.length) {
     card(ctx, 44, y, W - 88, 80, { radius: 12, fill: PALETTE.bg1 });
-    text(ctx, "No submissions yet", 70, y + 30, {
+    text(ctx, "No alt logs yet", 70, y + 30, {
       size: 20,
       weight: "bold",
       color: PALETTE.text,
