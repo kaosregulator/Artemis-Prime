@@ -24,7 +24,7 @@ import { rankByWarnings, type EnforcementRankRow } from "../services/warnings";
 import { rankByReminders } from "../services/reminders";
 import { activityWord } from "../services/tracking";
 import { warnBoardAudience } from "./warnBoardAudience";
-import { DASH_HOME, dashBoardPage } from "../ui/ids";
+import { DASH_HOME, dashBoardPage, dashBoardView } from "../ui/ids";
 import { logger } from "../../lib/logger";
 
 const PAGE_SIZE = 10;
@@ -37,14 +37,22 @@ const FETCH_CHUNK = 100;
 
 export type WarnBoardView = "active" | "lifetime";
 
-/** `dash:board`, `dash:board:2` (legacy), or `dash:board:active-2` / `life-2`. */
+/**
+ * Parse `dash:board` args:
+ * - (none) / `2` → active page (legacy)
+ * - `active-p2` / `life-p0` → page buttons
+ * - `active-v` / `life-v` → view toggle
+ * - `active-2` / `life-2` → legacy from the broken PR (still accepted)
+ */
 export function parseWarnBoardArg(arg?: string | null): { view: WarnBoardView; page: number } {
   if (!arg || /^\d+$/.test(arg)) {
     return { view: "active", page: Math.max(0, parseInt(arg ?? "0", 10) || 0) };
   }
-  const [viewRaw, pageRaw] = arg.split("-");
+  const [viewRaw, rest = "0"] = arg.split("-");
   const view: WarnBoardView = viewRaw === "life" || viewRaw === "lifetime" ? "lifetime" : "active";
-  return { view, page: Math.max(0, parseInt(pageRaw ?? "0", 10) || 0) };
+  if (rest === "v") return { view, page: 0 };
+  const pageToken = rest.startsWith("p") ? rest.slice(1) : rest;
+  return { view, page: Math.max(0, parseInt(pageToken, 10) || 0) };
 }
 
 interface Listed {
@@ -69,15 +77,18 @@ function pager(
   pages: number,
   view: WarnBoardView
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  // View toggles and page buttons MUST use different custom_ids. Discord
+  // rejects the whole message if any two components share one (50035).
+  // On page 0 that used to make Active and Prev both `active-0`.
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(dashBoardPage(0, "active"))
+        .setCustomId(dashBoardView("active"))
         .setStyle(view === "active" ? ButtonStyle.Danger : ButtonStyle.Secondary)
         .setLabel("Active")
         .setDisabled(view === "active"),
       new ButtonBuilder()
-        .setCustomId(dashBoardPage(0, "lifetime"))
+        .setCustomId(dashBoardView("lifetime"))
         .setStyle(view === "lifetime" ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setLabel("Lifetime")
         .setDisabled(view === "lifetime"),
@@ -98,16 +109,36 @@ function pager(
   ];
 }
 
+/** Assert every component custom_id in the payload is unique (Discord requirement). */
+export function assertUniqueCustomIds(components: BaseMessageOptions["components"]): void {
+  if (!components?.length) return;
+  const seen = new Set<string>();
+  for (const row of components) {
+    const data = "toJSON" in row && typeof row.toJSON === "function" ? row.toJSON() : row;
+    const comps = (data as { components?: Array<{ custom_id?: string }> }).components ?? [];
+    for (const c of comps) {
+      const cid = c.custom_id;
+      if (!cid) continue;
+      if (seen.has(cid)) {
+        throw new Error(`Duplicate Discord custom_id in warnboard: ${cid}`);
+      }
+      seen.add(cid);
+    }
+  }
+}
+
 function boardNotice(clan: Clan, message: string): BaseMessageOptions {
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
     .setTitle(`${clan.clanName} — warnings & reminders`)
     .setDescription(message);
+  const components = pager(0, 1, "active");
+  assertUniqueCustomIds(components);
   return {
     content: "",
     embeds: [embed],
     files: [],
-    components: pager(0, 1, "active"),
+    components,
   };
 }
 
@@ -254,11 +285,13 @@ export async function buildWarnBoardPayload(
           : "Lifetime totals. Cleared warnings still count here.",
     });
 
+  const components = pager(current, pages, view);
+  assertUniqueCustomIds(components);
   return {
     content: "",
     embeds: [embed],
     files: [],
-    components: pager(current, pages, view),
+    components,
   };
 }
 

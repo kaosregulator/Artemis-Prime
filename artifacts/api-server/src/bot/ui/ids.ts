@@ -56,8 +56,16 @@ export const DASH_FILTER = id(NS.dash, "filter");
 export const DASH_HOME = id(NS.dash, "home");
 /** Open the most-warned / most-reminded list. No arg opens the active page. */
 export const DASH_BOARD = id(NS.dash, "board");
+/**
+ * Page buttons for /warnboard. Must stay unique from {@link dashBoardView} —
+ * Discord rejects a message when two components share the same custom_id
+ * (that was breaking /warnboard on page 0: Active and Prev both used active-0).
+ */
 export const dashBoardPage = (page: number, view: "active" | "lifetime" = "active") =>
-  id(NS.dash, "board", `${view === "lifetime" ? "life" : "active"}-${Math.max(0, page)}`);
+  id(NS.dash, "board", `${view === "lifetime" ? "life" : "active"}-p${Math.max(0, page)}`);
+/** Active / Lifetime toggle — never reuse a page custom_id. */
+export const dashBoardView = (view: "active" | "lifetime") =>
+  id(NS.dash, "board", `${view === "lifetime" ? "life" : "active"}-v`);
 /** Open member browser at queue index (arg = `${filter}-${index}`). */
 export const dashBrowse = (filter: string, index: number) =>
   id(NS.dash, "browse", `${filter}-${index}`);
