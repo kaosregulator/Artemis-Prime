@@ -2,11 +2,6 @@
  * /warnboard — a plain ranked list, 10 people per page.
  * Counts come from saved warning and reminder rows, not clan points.
  * Only members who currently hold the configured activity track role are listed.
- *
- * Important: never call guild.members.fetch() for the whole server here.
- * GuildMemberManager is cache-capped (maxSize 200). A full member chunk hangs
- * on large clans and still only keeps 200 people. Rank from the DB first, then
- * fetch only those candidate ids and keep the ones who still hold the role.
  */
 import {
   ActionRowBuilder,
@@ -22,29 +17,33 @@ import type { Clan } from "@workspace/db";
 import { getClan, isOfficer } from "../services/config";
 import { rankByWarnings, type EnforcementRankRow } from "../services/warnings";
 import { rankByReminders } from "../services/reminders";
+import { memberIdsWithRoles } from "../services/roles";
 import { activityWord } from "../services/tracking";
 import { warnBoardAudience } from "./warnBoardAudience";
-import { DASH_HOME, dashBoardPage } from "../ui/ids";
+import { DASH_HOME, dashBoardPage, dashBoardView } from "../ui/ids";
 import { logger } from "../../lib/logger";
 
 const PAGE_SIZE = 10;
-/** How many ranked rows to keep after the track-role filter. */
 const FETCH_CAP = 100;
-/** Pull extra DB rows so filtering out former role holders still fills a page. */
-const OVER_FETCH = 250;
-/** Discord gateway Request Guild Members accepts at most 100 user ids per call. */
-const FETCH_CHUNK = 100;
 
 export type WarnBoardView = "active" | "lifetime";
 
-/** `dash:board`, `dash:board:2` (legacy), or `dash:board:active-2` / `life-2`. */
+/**
+ * Parse `dash:board` args:
+ * - (none) / `2` → active page (legacy)
+ * - `active-p2` / `life-p0` → page buttons
+ * - `active-v` / `life-v` → view toggle
+ * - `active-2` / `life-2` → legacy from the broken PR (still accepted)
+ */
 export function parseWarnBoardArg(arg?: string | null): { view: WarnBoardView; page: number } {
   if (!arg || /^\d+$/.test(arg)) {
     return { view: "active", page: Math.max(0, parseInt(arg ?? "0", 10) || 0) };
   }
-  const [viewRaw, pageRaw] = arg.split("-");
+  const [viewRaw, rest = "0"] = arg.split("-");
   const view: WarnBoardView = viewRaw === "life" || viewRaw === "lifetime" ? "lifetime" : "active";
-  return { view, page: Math.max(0, parseInt(pageRaw ?? "0", 10) || 0) };
+  if (rest === "v") return { view, page: 0 };
+  const pageToken = rest.startsWith("p") ? rest.slice(1) : rest;
+  return { view, page: Math.max(0, parseInt(pageToken, 10) || 0) };
 }
 
 interface Listed {
@@ -69,15 +68,17 @@ function pager(
   pages: number,
   view: WarnBoardView
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  // View toggles and page buttons MUST use different custom_ids. Discord
+  // rejects the whole message if any two components share one.
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(dashBoardPage(0, "active"))
+        .setCustomId(dashBoardView("active"))
         .setStyle(view === "active" ? ButtonStyle.Danger : ButtonStyle.Secondary)
         .setLabel("Active")
         .setDisabled(view === "active"),
       new ButtonBuilder()
-        .setCustomId(dashBoardPage(0, "lifetime"))
+        .setCustomId(dashBoardView("lifetime"))
         .setStyle(view === "lifetime" ? ButtonStyle.Primary : ButtonStyle.Secondary)
         .setLabel("Lifetime")
         .setDisabled(view === "lifetime"),
@@ -104,53 +105,27 @@ function boardNotice(clan: Clan, message: string): BaseMessageOptions {
     .setTitle(`${clan.clanName} — warnings & reminders`)
     .setDescription(message);
   return {
-    content: "",
     embeds: [embed],
-    files: [],
     components: pager(0, 1, "active"),
   };
 }
 
-/**
- * Fetch only the given members (chunked). Never requests the whole guild roster.
- * Exported for tests.
- */
-export async function fetchMemberIds(guild: Guild, userIds: string[]): Promise<void> {
-  const unique = [...new Set(userIds.filter(Boolean))];
-  for (let i = 0; i < unique.length; i += FETCH_CHUNK) {
-    const chunk = unique.slice(i, i + FETCH_CHUNK);
-    await guild.members.fetch({ user: chunk }).catch(() => null);
+/** Assert every component custom_id in the payload is unique (Discord requirement). */
+export function assertUniqueCustomIds(components: BaseMessageOptions["components"]): void {
+  if (!components?.length) return;
+  const seen = new Set<string>();
+  for (const row of components) {
+    const data = "toJSON" in row && typeof row.toJSON === "function" ? row.toJSON() : row;
+    const comps = (data as { components?: Array<{ custom_id?: string }> }).components ?? [];
+    for (const c of comps) {
+      const cid = c.custom_id;
+      if (!cid) continue;
+      if (seen.has(cid)) {
+        throw new Error(`Duplicate Discord custom_id in warnboard: ${cid}`);
+      }
+      seen.add(cid);
+    }
   }
-}
-
-/**
- * Keep ranked rows whose users currently hold the track role.
- * Fetches only candidate ids — never the full member list.
- */
-export async function filterRowsToTrackRole<T extends { userId: string }>(
-  guild: Guild,
-  roleId: string,
-  rows: T[],
-  limit: number
-): Promise<{ rows: T[]; names: Map<string, string> }> {
-  const names = new Map<string, string>();
-  if (!rows.length) return { rows: [], names };
-
-  await fetchMemberIds(
-    guild,
-    rows.map((r) => r.userId)
-  );
-
-  const kept: T[] = [];
-  for (const row of rows) {
-    if (kept.length >= limit) break;
-    const member = guild.members.cache.get(row.userId);
-    if (!member || member.user.bot) continue;
-    if (!member.roles.cache.has(roleId)) continue;
-    kept.push(row);
-    names.set(member.id, member.displayName || member.user.username);
-  }
-  return { rows: kept, names };
 }
 
 /** Plain embed shared by /warnboard and the Command Center button. */
@@ -170,30 +145,26 @@ export async function buildWarnBoardPayload(
     return boardNotice(clan, "Open this board inside the server so the activity track role can be read.");
   }
 
+  const memberIds = await memberIdsWithRoles(guild, [clan.requiredRoleId]);
   const role = guild.roles.cache.get(clan.requiredRoleId);
   const audience = warnBoardAudience({
     requiredRoleId: clan.requiredRoleId,
     roleOnServer: !!role,
-    // Role membership is resolved per ranked candidate below — not via a full guild fetch.
-    memberIds: [],
+    memberIds,
   });
   if (!audience.ok) return boardNotice(clan, audience.message);
 
-  // Rank from the database first (fast). Then fetch only those people and keep
-  // whoever still holds the track role. This avoids guild.members.fetch().
-  const [warnedRaw, remindedRaw] = await Promise.all([
-    rankByWarnings(clan.guildId, OVER_FETCH, undefined, view),
-    rankByReminders(clan.guildId, OVER_FETCH, undefined),
+  const names = new Map<string, string>();
+  if (role) {
+    for (const member of role.members.values()) {
+      if (!member.user.bot) names.set(member.id, member.displayName || member.user.username);
+    }
+  }
+
+  const [warned, reminded] = await Promise.all([
+    rankByWarnings(clan.guildId, FETCH_CAP, audience.memberIds, view),
+    rankByReminders(clan.guildId, FETCH_CAP, audience.memberIds),
   ]);
-
-  const [{ rows: warned, names: warnedNames }, { rows: reminded, names: remindedNames }] =
-    await Promise.all([
-      filterRowsToTrackRole(guild, clan.requiredRoleId, warnedRaw, FETCH_CAP),
-      filterRowsToTrackRole(guild, clan.requiredRoleId, remindedRaw, FETCH_CAP),
-    ]);
-
-  const names = new Map<string, string>([...warnedNames, ...remindedNames]);
-
   const warnedRows: Listed[] = warned.map((r: EnforcementRankRow, i) => ({
     rank: i + 1,
     name: displayName(r.userId, r.username, names),
@@ -220,11 +191,14 @@ export async function buildWarnBoardPayload(
   const current = Math.min(Math.max(0, page), pages - 1);
   const start = current * PAGE_SIZE;
   const activity = activityWord(clan);
-  const emptyWarned =
-    view === "active"
+  const emptyWarned = audience.memberIds.length
+    ? view === "active"
       ? "_Nobody with the track role has an active warning._"
-      : "_Nobody with the track role has a saved warning._";
-  const emptyReminded = "_Nobody with the track role has a saved reminder._";
+      : "_Nobody with the track role has a saved warning._"
+    : "_Nobody currently has the activity track role._";
+  const emptyReminded = audience.memberIds.length
+    ? "_Nobody with the track role has a saved reminder._"
+    : "_Nobody currently has the activity track role._";
 
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
@@ -254,12 +228,12 @@ export async function buildWarnBoardPayload(
           : "Lifetime totals. Cleared warnings still count here.",
     });
 
-  return {
-    content: "",
+  const payload: BaseMessageOptions = {
     embeds: [embed],
-    files: [],
     components: pager(current, pages, view),
   };
+  assertUniqueCustomIds(payload.components);
+  return payload;
 }
 
 export async function handleWarnBoard(interaction: ChatInputCommandInteraction) {

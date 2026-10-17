@@ -730,29 +730,63 @@ export async function rankByWarnings(
   mode: "active" | "lifetime" = "lifetime"
 ): Promise<EnforcementRankRow[]> {
   if (userIds && userIds.length === 0) return [];
-  const where = userIds
-    ? and(eq(warningsTable.guildId, guildId), inArray(warningsTable.userId, userIds))
-    : eq(warningsTable.guildId, guildId);
-  const activeExpr = sql`sum(case when ${warningsTable.removedAt} is null then 1 else 0 end)`;
+
+  // Active board: only rows that are still open. Lifetime: every saved warning.
+  const scope =
+    mode === "active"
+      ? and(eq(warningsTable.guildId, guildId), isNull(warningsTable.removedAt))
+      : eq(warningsTable.guildId, guildId);
+  const where = userIds ? and(scope, inArray(warningsTable.userId, userIds)) : scope;
+
   const rows = await db
     .select({
       userId: warningsTable.userId,
       username: sql<string>`max(${warningsTable.username})`,
       count: sql<number>`count(*)::int`.mapWith(Number),
-      active: sql<number>`${activeExpr}::int`.mapWith(Number),
     })
     .from(warningsTable)
     .where(where)
     .groupBy(warningsTable.userId)
-    .orderBy(mode === "active" ? desc(activeExpr) : desc(sql`count(*)`), desc(sql`count(*)`))
+    .orderBy(desc(sql`count(*)`))
     .limit(limit);
-  const mapped = rows.map((r) => ({
+
+  if (mode === "active") {
+    // Every counted row is active in this mode.
+    return rows.map((r) => ({
+      userId: r.userId,
+      username: r.username || "member",
+      count: Number(r.count) || 0,
+      active: Number(r.count) || 0,
+    }));
+  }
+
+  // Lifetime still needs an active subtotal for the "(N still active)" note.
+  const rankedIds = rows.map((r) => r.userId);
+  const activeByUser = new Map<string, number>();
+  if (rankedIds.length) {
+    const activeRows = await db
+      .select({
+        userId: warningsTable.userId,
+        active: sql<number>`count(*)::int`.mapWith(Number),
+      })
+      .from(warningsTable)
+      .where(
+        and(
+          eq(warningsTable.guildId, guildId),
+          isNull(warningsTable.removedAt),
+          inArray(warningsTable.userId, rankedIds)
+        )
+      )
+      .groupBy(warningsTable.userId);
+    for (const r of activeRows) activeByUser.set(r.userId, Number(r.active) || 0);
+  }
+
+  return rows.map((r) => ({
     userId: r.userId,
     username: r.username || "member",
     count: Number(r.count) || 0,
-    active: Number(r.active) || 0,
+    active: activeByUser.get(r.userId) ?? 0,
   }));
-  return mode === "active" ? mapped.filter((r) => r.active > 0) : mapped;
 }
 
 /** Lifetime warnings (active + removed) — the history officers review. */
