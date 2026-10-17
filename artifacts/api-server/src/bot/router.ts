@@ -286,13 +286,21 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       {
         err,
         customId: "customId" in interaction ? interaction.customId : undefined,
+        commandName: interaction.isChatInputCommand() ? interaction.commandName : undefined,
       },
       "Interaction failed"
     );
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+    if (!interaction.isRepliable()) return;
+    // After deferReply/deferUpdate, Discord stays on "thinking" forever unless we
+    // editReply. The old path only replied when nothing was deferred yet.
+    if (interaction.deferred || interaction.replied) {
       await interaction
-        .reply({ content: "Something went wrong. Please try again.", flags: 64 })
+        .editReply({ content: "Something went wrong. Please try again." })
         .catch(() => {});
+      return;
     }
+    await interaction
+      .reply({ content: "Something went wrong. Please try again.", flags: 64 })
+      .catch(() => {});
   }
 }

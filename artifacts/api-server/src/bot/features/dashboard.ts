@@ -489,10 +489,16 @@ export async function handleDashButton(interaction: ButtonInteraction) {
 
   if (action === "board") {
     const { view, page } = parseWarnBoardArg(arg);
-    await interaction.editReply({
-      ...(await buildWarnBoardPayload(clan, page, guild, view)),
-      attachments: [],
-    });
+    try {
+      await interaction.editReply({
+        ...(await buildWarnBoardPayload(clan, page, guild, view)),
+        attachments: [],
+      });
+    } catch (err) {
+      const { logger } = await import("../../lib/logger");
+      logger.error({ err, guildId: clan.guildId }, "warnboard button failed");
+      await interaction.editReply({ content: "Couldn't open the warning board. Please try again." });
+    }
     return;
   }
 
