@@ -11,7 +11,7 @@ import type { Clan } from "@workspace/db";
 import { getClan, isOfficer, isAdmin, getMember, identityFromUser } from "../services/config";
 import { applyProgress, statusOf, STATUS_LABEL, formatProgress } from "../services/progress";
 import { sendReminder, recentReminder } from "../services/reminders";
-import { issueWarning, recentWarning } from "../services/warnings";
+import { issueWarning, recentWarning, removeWarning, clearWarningPanel } from "../services/warnings";
 import { discordRelative } from "../services/time";
 import { mpXpModal, parseId } from "../ui/ids";
 
@@ -77,6 +77,32 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
   await interaction.deferReply({ flags: 64 });
   const clan = await officerGuard(interaction);
   if (!clan) return;
+
+  if (action === "cleardo") {
+    const warningId = Number(userId);
+    if (!Number.isFinite(warningId) || warningId <= 0) {
+      await interaction.editReply({ content: "That warning id isn't valid." });
+      return;
+    }
+    const removed = await removeWarning({
+      guild: interaction.guild,
+      clan,
+      warningId,
+      moderatorId: interaction.user.id,
+      moderatorUsername: interaction.user.username,
+    });
+    const panel = removed
+      ? await clearWarningPanel(interaction.guild, clan, removed.userId)
+      : { embeds: [], components: [] };
+    await interaction.editReply({
+      content: removed
+        ? `Cleared warning **#${warningId}** for **${removed.username}**. They can see it come off.`
+        : `Warning **#${warningId}** was already cleared.`,
+      ...panel,
+    });
+    return;
+  }
+
   const identity = await resolveIdentity(interaction, userId);
   if (!identity) {
     await interaction.editReply({ content: "Couldn't resolve that member." });
@@ -86,7 +112,11 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
   switch (action) {
     case "complete": {
       const res = await applyProgress(clan, identity, { kind: "complete" }, officer(interaction));
-      await interaction.editReply({ content: `✅ **${identity.displayName}** marked complete — ${formatProgress(clan, res.member)}.` });
+      await interaction.editReply({ content: `✅ **${identity.displayName}** activity marked done — ${formatProgress(clan, res.member)}.` });
+      return;
+    }
+    case "clear": {
+      await interaction.editReply(await clearWarningPanel(interaction.guild, clan, userId));
       return;
     }
     case "remind": {
@@ -146,7 +176,7 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
           target: user,
           moderatorId: interaction.user.id,
           moderatorUsername: interaction.user.username,
-          reason: `Missed the ${clan.activityName} activity goal.`,
+          reason: `Activity warning for ${clan.activityName}.`,
         });
         await interaction.editReply({ content: `⚠️ Warned **${identity.username}** — now **${activeCount}** active warning(s).` });
       } catch (err) {

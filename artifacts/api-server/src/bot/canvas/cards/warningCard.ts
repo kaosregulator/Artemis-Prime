@@ -356,8 +356,10 @@ async function renderEnforcementCard(opts: {
   icon: "warning" | "bell";
 }): Promise<Buffer> {
   const { v, accent, accentSoft } = opts;
-  const logo = v.clanLogoUrl ? await fetchAvatar(v.clanLogoUrl) : null;
-  const hasLogo = !!logo;
+  // The member's linked Roblox face (Discord if they aren't linked) is the
+  // mark in the corner. The clan logo is not painted on these cards.
+  const logo = null;
+  const hasLogo = false;
   // Extra height so the clan logo can sit up top and the Roblox face can drop
   // below the message without shrinking.
   const height = hasLogo ? 1120 : H;
@@ -398,6 +400,22 @@ async function renderEnforcementCard(opts: {
 
   const pad = 48;
   if (opts.badgeLabel) badge(ctx, opts.badgeLabel, W - pad, pad, accent);
+
+  const cornerUrl = v.robloxAvatarUrl || v.discordAvatarUrl || v.avatarUrl;
+  const cornerSize = 108;
+  const cornerX = W - 56 - cornerSize;
+  const cornerY = 36;
+  const cornerInitial = sanitizeText(v.memberName).replace(/^@/, "").slice(0, 1) || "?";
+  const cornerImg = cornerUrl ? await fetchAvatar(cornerUrl) : null;
+  drawAvatar(ctx, cornerImg, cornerX, cornerY, cornerSize, cornerInitial, accentSoft);
+  drawCenter(
+    ctx,
+    v.robloxAvatarUrl ? "Roblox" : "Discord",
+    cornerX + cornerSize / 2,
+    cornerY + cornerSize + 18,
+    14,
+    LIGHT.muted
+  );
 
   if (logo) {
     const logoSize = 128;

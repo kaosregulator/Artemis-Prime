@@ -311,7 +311,7 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
           new ButtonBuilder().setCustomId(wizEdit(10)).setLabel("✏️ Thresholds").setStyle(ButtonStyle.Primary),
           toggleButton("dmOnWarn", 10, "DM on warning", clan.dmOnWarn)
         ),
-        roleSelectRow("warnRoles", 10, "Warning role (assigned on warn)", clan.warningRoleIds)
+        roleSelectRow("warnRoles", 10, "Warning role (on at 2 active warnings)", clan.warningRoleIds)
       );
       break;
     }
@@ -319,7 +319,7 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
       const v = validate(clan);
       h.setColor(v.errors.length ? 0xed4245 : 0x3ba55d).addFields(
         {
-          name: "Requirement",
+          name: "Activity",
           value:
             (clan.trackingMode === "complete"
               ? `Complete ${clan.activityName} each period`

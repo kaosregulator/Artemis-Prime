@@ -170,7 +170,7 @@ export async function renderStandingCard(view: StandingCardView): Promise<Buffer
     }
   }
 
-  text(ctx, "Clean points count a record that has never been warned. History stays.", 44, H - 28, {
+  text(ctx, "Active warnings stay until you dispute them and staff clear the warning.", 44, H - 28, {
     size: 14,
     color: PALETTE.muted,
     maxWidth: W - 88,

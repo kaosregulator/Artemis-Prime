@@ -105,7 +105,6 @@ function reminderEmbed(
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(body)
     .setTimestamp();
-  if (clan.clanLogoUrl) embed.setImage(clan.clanLogoUrl);
   return embed;
 }
 

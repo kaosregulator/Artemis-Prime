@@ -20,15 +20,15 @@ import {
 function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
   return new SlashCommandBuilder()
     .setName("dispute")
-    .setDescription("Open a private XP dispute ticket with staff")
+    .setDescription("Open a private dispute ticket with staff")
     .addStringOption((o) =>
       o
         .setName("type")
         .setDescription("What are you disputing?")
         .setRequired(true)
         .addChoices(
-          { name: "XP warning", value: "warning" },
-          { name: "XP record", value: "xp_record" },
+          { name: "Warning", value: "warning" },
+          { name: "Activity record", value: "xp_record" },
           { name: "Role action", value: "role_action" }
         )
     )
@@ -42,13 +42,13 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
     .addAttachmentOption((o) =>
       o
         .setName("evidence")
-        .setDescription("Optional image from your device (Discord upload — not a URL)")
+        .setDescription("Optional file from your device (any upload — not a link)")
         .setRequired(false)
     )
     .addIntegerOption((o) =>
       o
         .setName("warning_id")
-        .setDescription("Your warning ticket # (autocomplete — required for XP warning)")
+        .setDescription("Your warning ticket # (autocomplete — required for a warning dispute)")
         .setRequired(false)
         .setMinValue(1)
         .setAutocomplete(true)
@@ -60,14 +60,14 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
 export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("setup")
-    .setDescription("Configure XP management for this server")
+    .setDescription("Configure this clan server")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
     .setDMPermission(false)
     .toJSON(),
 
   new SlashCommandBuilder()
     .setName("xp")
-    .setDescription("Manage weekly XP (officers)")
+    .setDescription("Clan activity tools (officers)")
     .setDMPermission(false)
     // Single-member updates -------------------------------------------------
     .addSubcommand((s) =>
@@ -140,7 +140,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addSubcommand((s) =>
       s
         .setName("exempt")
-        .setDescription("Exempt a member from the weekly requirement")
+        .setDescription("Mark a member exempt from activity checks")
         .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
         .addBooleanOption((o) =>
           o.setName("enabled").setDescription("On or off (default on)").setRequired(false)
@@ -290,7 +290,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addAttachmentOption((o) =>
       o
         .setName("logo")
-        .setDescription("Optional in-game clan logo — saved and shown on warning & reminder cards")
+        .setDescription("Optional clan image. Cards use the member's linked Roblox avatar instead.")
         .setRequired(false)
     )
     .toJSON(),
@@ -303,7 +303,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("entry")
-    .setDescription("Log a member's XP for a day")
+    .setDescription("Log a member's activity for a day")
     .setDMPermission(false)
     .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
     .addIntegerOption((o) =>
@@ -325,7 +325,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("calendar")
-    .setDescription("Show a member's XP calendar")
+    .setDescription("Show a member's activity calendar")
     .setDMPermission(false)
     .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
     .addStringOption((o) =>
@@ -335,14 +335,14 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("missing")
-    .setDescription("List members who haven't hit today's XP target")
+    .setDescription("Retired — use /warnboard for active warnings")
     .setDMPermission(false)
     .addRoleOption((o) => o.setName("role").setDescription("Only check this role").setRequired(false))
     .toJSON(),
 
   new SlashCommandBuilder()
     .setName("panel")
-    .setDescription("Post the persistent live XP command center (officers)")
+    .setDescription("Post the live clan staff board (officers)")
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
     .addChannelOption((o) =>
@@ -356,13 +356,13 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnboard")
-    .setDescription("Plain list of who has the most warnings and reminders (10 per page)")
+    .setDescription("Staff board of active warnings, with a lifetime toggle")
     .setDMPermission(false)
     .toJSON(),
 
   new SlashCommandBuilder()
     .setName("clanlogo")
-    .setDescription("Attach the in-game clan logo used on warning and reminder cards")
+    .setDescription("Save a clan image. Warning cards use the linked Roblox avatar.")
     .setDMPermission(false)
     .addAttachmentOption((o) =>
       o
@@ -374,7 +374,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("Your warning card, or the officer board of who needs a look")
+    .setDescription("Your active warnings, or the officer warning board")
     .addUserOption((o) => o.setName("user").setDescription("Whose standing to view").setRequired(false))
     .addStringOption((o) =>
       o

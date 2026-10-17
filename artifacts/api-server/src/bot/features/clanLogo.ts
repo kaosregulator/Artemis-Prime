@@ -60,8 +60,8 @@ export async function storeClanLogo(
     }
     const msg = await channel.send({
       content:
-        `🖼️ Clan logo for **${clan.clanName}**. It appears on warning and reminder cards. ` +
-        `Leave this message up — deleting it removes the image.`,
+        `🖼️ Clan image for **${clan.clanName}** saved. Warning and reminder cards use each member's linked Roblox avatar. ` +
+        `Leave this message up if you still want the file hosted.`,
       files: [new AttachmentBuilder(bytes, { name: safeFileName(attachment.name) })],
     });
     const hosted = msg.attachments.first()?.url ?? attachment.url;
@@ -72,8 +72,7 @@ export async function storeClanLogo(
       ok: true,
       clan: updated,
       note:
-        `Clan logo saved. Warning and reminder cards use it as a soft background and a header mark, ` +
-        `and the Roblox avatar sits below it. Hosted in ${where}.`,
+        `Clan image saved in ${where}. Warning and reminder cards use the member's linked Roblox avatar (Discord avatar if they aren't linked).`,
     };
   } catch (err) {
     logger.warn({ err }, "Clan logo host post failed");
@@ -82,7 +81,7 @@ export async function storeClanLogo(
     return {
       ok: true,
       clan: updated,
-      note: "Clan logo saved. If it stops showing on cards, run `/clanlogo` again.",
+      note: "Clan image saved. Warning and reminder cards still use the linked Roblox avatar.",
     };
   }
 }

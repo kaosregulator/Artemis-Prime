@@ -3,7 +3,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { getClan, isOfficer } from "../services/config";
-import { removeWarning } from "../services/warnings";
+import { removeWarning, clearWarningPanel } from "../services/warnings";
 import { helpPanelV2, statePanel } from "../ui/v2/commonPanels";
 
 /**
@@ -55,10 +55,18 @@ export async function handleWarnRemoveSelect(interaction: StringSelectMenuIntera
     moderatorId: interaction.user.id,
     moderatorUsername: interaction.user.username,
   });
-  await interaction.editReply(
-    statePanel({
-      kind: removed ? "success" : "warning",
-      body: removed ? `Removed warning #${warningId}.` : "That warning was already removed.",
-    }) as Parameters<typeof interaction.editReply>[0]
-  );
+  if (!removed) {
+    await interaction.editReply(
+      statePanel({
+        kind: "warning",
+        body: "That warning was already removed.",
+      }) as Parameters<typeof interaction.editReply>[0]
+    );
+    return;
+  }
+  const panel = await clearWarningPanel(interaction.guild, clan, removed.userId);
+  await interaction.editReply({
+    content: `Cleared warning **#${warningId}**.`,
+    ...panel,
+  });
 }

@@ -58,22 +58,10 @@ function cardStyleLabel(clan: Clan): string {
   return clan.cardStyle === "embed" ? "Avatar embed" : "Canvas cards";
 }
 
-function warnRemovalLabel(hours: number): string {
-  if (!hours || hours <= 0) return "off";
-  if (hours === 1) return "Hourly";
-  if (hours === 24) return "Daily";
-  if (hours === 168) return "Weekly";
-  if (hours === 720) return "Monthly (30 days)";
-  if (hours % 720 === 0) return `every ${hours / 720} month(s)`;
-  if (hours % 168 === 0) return `every ${hours / 168} week(s)`;
-  if (hours % 24 === 0) return `every ${hours / 24} day(s)`;
-  return `every ${hours} hour(s)`;
-}
-
 function goalLine(clan: Clan): string {
   const period = periodAdjective(clan);
   if (clan.trackingMode === "complete") {
-    return `Complete the ${period} **${clan.activityName}** requirement`;
+    return `Mark **${clan.activityName}** done each ${period}`;
   }
   if (getTrackingPeriod(clan) === "daily") {
     const goal = clan.dailyTarget > 0 ? clan.dailyTarget : clan.weeklyGoal;
@@ -91,7 +79,7 @@ export function setupMainPayloadV2(clan: Clan): MessageCreateOptions {
       : "";
 
   const requirement = [
-    `${check(clan.weeklyGoal || clan.trackingMode === "complete")} **${period} requirement**`,
+    `${check(clan.weeklyGoal || clan.trackingMode === "complete")} **${period} activity**`,
     `${goalLine(clan)}`,
     `Tracking mode: **${modeLabel(clan)}** · Period: **${periodSetupLabel(clan)}**`,
   ].join("\n");
@@ -110,9 +98,9 @@ export function setupMainPayloadV2(clan: Clan): MessageCreateOptions {
 
   const enforcement = [
     `${check(clan.warningThreshold)} **Enforcement**`,
-    `Warning after **${clan.warningThreshold}** reminder(s) without hitting the goal`,
+    `Reminders before a warning: **${clan.warningThreshold}**`,
     `Leadership review at **${clan.escalationThreshold}** active warning(s)`,
-    `Warning role auto-removal: **${warnRemovalLabel(clan.warningRemovalHours)}**`,
+    `Warning role: on at **2** active warnings`,
     `Warning/reminder style: **${cardStyleLabel(clan)}**`,
   ].join("\n");
 
@@ -199,7 +187,7 @@ export function setupMainPayloadV2(clan: Clan): MessageCreateOptions {
             v2Button({ customId: SETUP_CARDS, label: "Warnings & Cards" })
           ),
           actionRow(
-            v2Button({ customId: SETUP_DISPUTES, label: "XP Disputes", style: ButtonStyle.Primary }),
+            v2Button({ customId: SETUP_DISPUTES, label: "Disputes", style: ButtonStyle.Primary }),
             v2Button({ customId: SETUP_LEVELING, label: "Leveling Service", style: ButtonStyle.Primary }),
             v2Button({ customId: SETUP_FINISH, label: "Finish", style: ButtonStyle.Success }),
             v2Button({ customId: wizGo(1), label: "Guided setup wizard", emoji: "🧭" })

@@ -1,4 +1,4 @@
-import type { Client, TextBasedChannel } from "discord.js";
+import type { Client } from "discord.js";
 import type { Clan } from "@workspace/db";
 import dayjs from "dayjs";
 import { logger } from "../lib/logger";
@@ -7,19 +7,13 @@ import { activeClans } from "./services/config";
 import { localHm, weekKey } from "./services/time";
 import {
   listTracked,
-  snapshotFrom,
   reminderTargets,
-  warningTargets,
   rollWeek,
   getTrackingPeriod,
   periodKey,
 } from "./services/progress";
-import { periodAdjective, periodLabel } from "./services/tracking";
+import { periodAdjective } from "./services/tracking";
 import { sendBulkReminders } from "./services/reminders";
-import {
-  autoExpireWarnings,
-  clearWarningRolesForSatisfiedMembers,
-} from "./services/warnings";
 import { refreshDashboardNow } from "./services/commandCenter";
 import { expireStaleChallenges } from "./services/todGame";
 
@@ -42,23 +36,7 @@ function fireOnce(key: string): boolean {
   return true;
 }
 
-async function sendToChannel(client: Client, channelId: string | null, content: string) {
-  if (!channelId) return;
-  try {
-    const channel = (await client.channels.fetch(channelId)) as TextBasedChannel | null;
-    if (channel && "send" in channel) {
-      await channel.send({ content, allowedMentions: { parse: ["roles"] } });
-    }
-  } catch (err) {
-    logger.warn({ err, channelId }, "Scheduler failed to send channel message");
-  }
-}
-
-function officerMention(clan: Clan): string {
-  return [...clan.staffRoleIds, ...clan.adminRoleIds].map((r) => `<@&${r}>`).join(" ");
-}
-
-/** Scheduled reminders to everyone still short of the configured requirement. */
+/** Scheduled reminders for members who still owe the current activity period. */
 async function runReminderWindow(client: Client, clan: Clan) {
   const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
   const members = await listTracked(clan, guild);
@@ -81,58 +59,19 @@ async function runReminderWindow(client: Client, clan: Clan) {
 }
 
 /**
- * Close the tracking period: post the final summary to the officers, then
- * archive and reset. Runs at the period boundary when autoWeeklyReset is on
- * (daily → every day at resetTime; weekly → week-start day at resetTime).
+ * Archive the activity period quietly. No staff close-out ping — warnings are
+ * not tied to a period ending, and officers are not told who "missed" a quota.
  */
-async function runPeriodReset(client: Client, clan: Clan) {
-  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
-  const members = await listTracked(clan, guild);
-  const snap = snapshotFrom(clan, members);
-  const channel = clan.warningChannelId ?? clan.logChannelId ?? clan.reminderChannelId;
-  const label = periodLabel(clan);
-
-  if (channel) {
-    const pct = Math.round(snap.completionRate * 100);
-    await sendToChannel(
-      client,
-      channel,
-      `${officerMention(clan)} 📅 **${label} period closed** — ${snap.completed}/${snap.active} members hit the ${clan.activityName} goal (**${pct}%**). ` +
-        `${snap.notStarted} never started · ${snap.warningsThisWeek} warning(s) issued this ${periodAdjective(clan)}.\n` +
-        `Run \`/xp review\` for the full breakdown — progress has been archived and reset.`
-    );
-  }
-
+async function runPeriodReset(_client: Client, clan: Clan) {
   const res = await rollWeek(clan);
   logger.info(
     { guild: clan.guildId, archived: res.archived, period: periodAdjective(clan) },
-    `${label} reset completed`
+    "Activity period archived"
   );
 }
 
 /** Back-compat alias used by tests / manual triggers. */
 const runWeeklyReset = runPeriodReset;
-
-/** Nudge officers when many members are behind (staff-only channel). */
-async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string) {
-  const channel = clan.warningChannelId ?? clan.logChannelId;
-  if (!channel) return;
-
-  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
-  const members = await listTracked(clan, guild);
-  const snap = snapshotFrom(clan, members);
-  const warnable = warningTargets(clan, members).length;
-  if (!warnable) return;
-
-  if (!fireOnce(`${clan.guildId}:${dateKey}:escalation`)) return;
-  await sendToChannel(
-    client,
-    channel,
-    `${officerMention(clan)} ⚠️ **${warnable}** member(s) are warning-eligible ` +
-      `(${clan.warningThreshold}+ reminders, still short of the ${clan.activityName} ${periodAdjective(clan)} goal). ` +
-      `${snap.completed}/${snap.active} complete. Run \`/xp review\` to issue warnings in bulk.`
-  );
-}
 
 async function tick(client: Client) {
   if (tickRunning) {
@@ -188,18 +127,6 @@ async function tick(client: Client) {
           await runReminderWindow(client, clan);
         }
 
-        if (reminderTime && hhmm === bumpHour(reminderTime)) {
-          await runOfficerMonitoring(client, clan, dateKey);
-        }
-
-        if (clan.warningRemovalHours > 0 && new Date().getMinutes() % 10 === 0) {
-          await autoExpireWarnings(client, clan).catch(() => {});
-        }
-
-        if (new Date().getMinutes() % 10 === 0) {
-          await clearWarningRolesForSatisfiedMembers(client, clan).catch(() => {});
-        }
-
         if (new Date().getMinutes() % 10 === 0) {
           await refreshDashboardNow(clan.guildId).catch(() => {});
         }
@@ -214,21 +141,14 @@ async function tick(client: Client) {
   }
 }
 
-/** "18:00" -> "19:00" (wraps at midnight). */
-function bumpHour(hhmm: string): string {
-  const [h = "0", m = "00"] = hhmm.split(":");
-  const hour = (parseInt(h, 10) + 1) % 24;
-  return `${String(hour).padStart(2, "0")}:${m}`;
-}
-
 /** Start the periodic scheduler (idempotent per process). */
 export function startScheduler(client: Client) {
   if (started) {
-    logger.warn("XP tracking scheduler already started — skipping duplicate registration");
+    logger.warn("Clan scheduler already started — skipping duplicate registration");
     return;
   }
   started = true;
-  logger.info("XP tracking scheduler started");
+  logger.info("Clan scheduler started");
   bootHandle = setTimeout(() => void tick(client), 10_000);
   intervalHandle = setInterval(() => void tick(client), TICK_MS);
 }
@@ -244,7 +164,7 @@ export function stopScheduler(): void {
     intervalHandle = null;
   }
   started = false;
-  logger.info("XP tracking scheduler stopped");
+  logger.info("Clan scheduler stopped");
 }
 
 /** Exposed for tests / manual triggers. */

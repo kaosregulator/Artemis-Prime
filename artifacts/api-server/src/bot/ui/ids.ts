@@ -54,9 +54,10 @@ export const REVIEW_RESET_CONFIRM = id(NS.review, "resetConfirm");
 export const DASH_REFRESH = id(NS.dash, "refresh");
 export const DASH_FILTER = id(NS.dash, "filter");
 export const DASH_HOME = id(NS.dash, "home");
-/** Open the most-warned / most-reminded list. Arg is the page number. */
+/** Open the most-warned / most-reminded list. No arg opens the active page. */
 export const DASH_BOARD = id(NS.dash, "board");
-export const dashBoardPage = (page: number) => id(NS.dash, "board", Math.max(0, page));
+export const dashBoardPage = (page: number, view: "active" | "lifetime" = "active") =>
+  id(NS.dash, "board", `${view === "lifetime" ? "life" : "active"}-${Math.max(0, page)}`);
 /** Open member browser at queue index (arg = `${filter}-${index}`). */
 export const dashBrowse = (filter: string, index: number) =>
   id(NS.dash, "browse", `${filter}-${index}`);
@@ -185,6 +186,8 @@ export const mpRemoveXp = (userId: string) => id(NS.mp, "remxp", userId);
 export const mpComplete = (userId: string) => id(NS.mp, "complete", userId);
 export const mpRemind = (userId: string) => id(NS.mp, "remind", userId);
 export const mpWarn = (userId: string) => id(NS.mp, "warn", userId);
+export const mpClear = (userId: string) => id(NS.mp, "clear", userId);
+export const mpClearDo = (warningId: number) => id(NS.mp, "cleardo", warningId);
 export const mpXpModal = (kind: string, userId: string) => id(NS.mp, "xpModal", `${kind}-${userId}`);
 
 // XP history / audit viewer (arg = "<userId>-<page>").

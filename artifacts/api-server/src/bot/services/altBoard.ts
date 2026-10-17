@@ -215,7 +215,7 @@ export async function buildAltLeaderboardPayload(
     .setDescription(
       ranked.length
         ? `Top Patriots & Guardians by alts completed.\n🏆 All-time high: **${allTimeHigh}**`
-        : "No alt submissions yet — hit **Submit** to log today's count (1–100)."
+        : "No alt logs yet — hit **Submit** to log today's count (1–100)."
     )
     .setFooter({ text: "Independent of warnings · officers can /alts set for backfill" })
     .setTimestamp();

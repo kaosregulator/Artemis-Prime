@@ -185,7 +185,7 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
       );
       await interaction.editReply({
         content:
-          `⚠️ **XP warnings** will be issued to **${targets.length}** member(s) still short of the goal after ${clan.warningThreshold}+ reminders:\n\n` +
+          `⚠️ Warnings will be issued to **${targets.length}** member(s) after ${clan.warningThreshold}+ reminders:\n\n` +
           `${preview}${targets.length > 15 ? `\n…and ${targets.length - 15} more` : ""}`,
         components: [confirm],
       });
@@ -223,7 +223,7 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
       await queue.onIdle();
       await interaction.editReply({
         content:
-          `⚠️ Issued **${issued}** XP warning(s).` +
+          `⚠️ Issued **${issued}** warning(s).` +
           (escalate.length
             ? `\n🚨 **Leadership review** — at ${clan.escalationThreshold}+ active warnings: ${escalate.join(", ")}`
             : ""),

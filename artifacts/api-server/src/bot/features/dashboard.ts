@@ -27,15 +27,8 @@ import {
   formatProgress,
   currentProgress,
   effectiveGoal,
-  reminderTargets,
-  warningTargets,
 } from "../services/progress";
-import {
-  weekKey,
-  weekRangeLabel,
-  nextWeeklyReset,
-  formatInZone,
-} from "../services/time";
+import { weekKey, weekRangeLabel } from "../services/time";
 import { cleanRankOf } from "./leaderboard";
 import { renderOffThread } from "../canvas/render-pool";
 import { DASH_FILTERS, type DashFilter, row } from "../ui/components";
@@ -50,12 +43,12 @@ import {
   dashNext,
   dashView,
   mpAddXp,
-  mpComplete,
+  mpClear,
   mpRemind,
   mpWarn,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
-import { buildWarnBoardPayload } from "./warnBoard";
+import { buildWarnBoardPayload, parseWarnBoardArg } from "./warnBoard";
 import {
   buildPlayerProfile,
   memberHasCombatSupportRole,
@@ -91,16 +84,14 @@ function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): C
       );
     case "complete":
       return members.filter((m) => statusOf(clan, m) === "complete");
-    case "attention": {
-      const targets = reminderTargets(clan, members);
-      const eligible = new Set(warningTargets(clan, members).map((m) => m.id));
-      return targets.sort((a, b) => {
-        const ea = eligible.has(a.id) ? 1 : 0;
-        const eb = eligible.has(b.id) ? 1 : 0;
-        if (ea !== eb) return eb - ea;
-        return (b.weekKey === wk ? b.weekReminders : 0) - (a.weekKey === wk ? a.weekReminders : 0);
-      });
-    }
+    case "attention":
+      return members
+        .filter((m) => (m.warningsCount ?? 0) > 0)
+        .sort((a, b) => (b.warningsCount ?? 0) - (a.warningsCount ?? 0));
+    case "rolehold":
+      return members
+        .filter((m) => (m.warningsCount ?? 0) >= 2)
+        .sort((a, b) => (b.warningsCount ?? 0) - (a.warningsCount ?? 0));
     case "reminded":
       return members.filter((m) => m.weekKey === wk && m.weekReminders > 0);
     case "warned":
@@ -121,9 +112,8 @@ function filterMeta(filter: DashFilter) {
 }
 
 function overviewComponents(counts: {
-  attention: number;
-  tracked: number;
-  warned: number;
+  activeWarnings: number;
+  roleHold: number;
   clean: number;
   all: number;
 }): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
@@ -131,14 +121,14 @@ function overviewComponents(counts: {
     row(
       new ButtonBuilder()
         .setCustomId(dashBrowse("attention", 0))
-        .setStyle(counts.attention ? ButtonStyle.Danger : ButtonStyle.Secondary)
-        .setLabel(`Needs attention ${counts.attention}/${counts.tracked}`)
-        .setDisabled(counts.attention === 0),
+        .setStyle(counts.activeWarnings ? ButtonStyle.Danger : ButtonStyle.Secondary)
+        .setLabel(`Active warnings ${counts.activeWarnings}`)
+        .setDisabled(counts.activeWarnings === 0),
       new ButtonBuilder()
-        .setCustomId(dashBrowse("warned", 0))
-        .setStyle(counts.warned ? ButtonStyle.Danger : ButtonStyle.Secondary)
-        .setLabel(`Warned ${counts.warned}`)
-        .setDisabled(counts.warned === 0),
+        .setCustomId(dashBrowse("rolehold", 0))
+        .setStyle(counts.roleHold ? ButtonStyle.Danger : ButtonStyle.Secondary)
+        .setLabel(`Warning role ${counts.roleHold}`)
+        .setDisabled(counts.roleHold === 0),
       new ButtonBuilder()
         .setCustomId(dashBrowse("clean", 0))
         .setStyle(ButtonStyle.Success)
@@ -150,10 +140,6 @@ function overviewComponents(counts: {
         .setCustomId(dashBrowse("all", 0))
         .setStyle(ButtonStyle.Primary)
         .setLabel(`Browse all ${counts.all}`),
-      new ButtonBuilder()
-        .setCustomId(dashBrowse("complete", 0))
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Complete"),
       new ButtonBuilder()
         .setCustomId(dashBrowse("reminded", 0))
         .setStyle(ButtonStyle.Secondary)
@@ -233,9 +219,9 @@ function browseComponents(
           .setStyle(ButtonStyle.Danger)
           .setLabel("Warn"),
         new ButtonBuilder()
-          .setCustomId(mpComplete(userId))
-          .setStyle(ButtonStyle.Success)
-          .setLabel("Complete"),
+          .setCustomId(mpClear(userId))
+          .setStyle(ButtonStyle.Danger)
+          .setLabel("Clear warning"),
         new ButtonBuilder()
           .setCustomId(mpAddXp(userId))
           .setStyle(ButtonStyle.Secondary)
@@ -268,38 +254,43 @@ export async function buildOverviewPayload(
 ): Promise<BaseMessageOptions> {
   const members = await listTracked(clan, guild);
   const tracked = members.filter((m) => !m.exempt && !m.onLeave).length;
-  const attention = reminderTargets(clan, members).length;
-  const warnEligible = warningTargets(clan, members).length;
+  const activeWarnings = members.filter((m) => (m.warningsCount ?? 0) > 0).length;
+  const roleHold = members.filter((m) => (m.warningsCount ?? 0) >= 2).length;
   const wk = weekKey(clan);
-  const warned = members.filter((m) => m.weekKey === wk && m.weekWarnings > 0).length;
-  const complete = members.filter((m) => statusOf(clan, m) === "complete").length;
+  const reminded = members.filter((m) => m.weekKey === wk && m.weekReminders > 0).length;
   const clean = members.filter(
     (m) => !m.exempt && !m.onLeave && (m.lifetimeWarnings ?? 0) === 0
   ).length;
-  const pct = tracked > 0 ? Math.round((complete / tracked) * 100) : 0;
+  const clearShare = members.length
+    ? Math.round(((members.length - activeWarnings) / members.length) * 100)
+    : 100;
 
   const png = await renderOffThread("commandCenter", {
     communityName: clan.clanName,
     weekRange: weekRangeLabel(wk),
-    deadline: `resets ${formatInZone(nextWeeklyReset(clan), clan, "ddd HH:mm")}`,
-    completionPct: pct,
-    completed: complete,
+    deadline: "Warnings stay until staff clear them",
+    completionPct: clearShare,
+    completed: Math.max(0, members.length - activeWarnings),
     active: tracked,
     needsActionLabel:
-      attention > 0
-        ? `Needs attention ${attention} / ${tracked} tracked`
-        : "All clear — nobody needs attention",
+      activeWarnings > 0
+        ? `${activeWarnings} with an active warning`
+        : "No active warnings",
     tiles: [
-      { label: "Attention", value: attention, tone: attention ? "warn" : "good" },
-      { label: "Warn-ready", value: warnEligible, tone: warnEligible ? "bad" : "neutral" },
-      { label: "Warned", value: warned, tone: warned ? "bad" : "neutral" },
-      { label: "Complete", value: complete, tone: "good" },
+      { label: "Active warnings", value: activeWarnings, tone: activeWarnings ? "bad" : "good" },
+      { label: "Warning role", value: roleHold, tone: roleHold ? "bad" : "neutral" },
+      { label: "Reminded", value: reminded, tone: "neutral" },
       { label: "Never warned", value: clean, tone: "good" },
       { label: "Exempt", value: members.filter((m) => m.exempt).length, tone: "neutral" },
       { label: "On leave", value: members.filter((m) => m.onLeave).length, tone: "neutral" },
       { label: "Tracked", value: members.length, tone: "neutral" },
+      {
+        label: "Has history",
+        value: members.filter((m) => (m.lifetimeWarnings ?? 0) > 0).length,
+        tone: "neutral",
+      },
     ],
-    footer: "1 Check counts   2 Open a queue   3 Message with /xpwarn",
+    footer: "Open a member and use Clear warning. The warning role turns on at 2 active warnings.",
   });
 
   return {
@@ -307,9 +298,8 @@ export async function buildOverviewPayload(
     embeds: [],
     files: [new AttachmentBuilder(png, { name: "command-center.png" })],
     components: overviewComponents({
-      attention,
-      tracked: Math.max(tracked, 1),
-      warned,
+      activeWarnings,
+      roleHold,
       clean,
       all: members.length,
     }),
@@ -339,9 +329,9 @@ export async function buildMemberBrowsePayload(
       active: 0,
       needsActionLabel: `No members in “${meta.label}” right now`,
       tiles: [
-        { label: "Attention", value: reminderTargets(clan, members).length, tone: "warn" },
+        { label: "Active warnings", value: members.filter((m) => (m.warningsCount ?? 0) > 0).length, tone: "warn" },
         { label: "All tracked", value: members.length, tone: "neutral" },
-        { label: "Complete", value: members.filter((m) => statusOf(clan, m) === "complete").length, tone: "good" },
+        { label: "Warning role", value: members.filter((m) => (m.warningsCount ?? 0) >= 2).length, tone: "bad" },
         { label: "Clean", value: members.filter((m) => (m.lifetimeWarnings ?? 0) === 0).length, tone: "good" },
         { label: "Warned", value: 0, tone: "neutral" },
         { label: "Exempt", value: members.filter((m) => m.exempt).length, tone: "neutral" },
@@ -498,9 +488,9 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   const guild = interaction.guild;
 
   if (action === "board") {
-    const page = Math.max(0, parseInt(arg ?? "0", 10) || 0);
+    const { view, page } = parseWarnBoardArg(arg);
     await interaction.editReply({
-      ...(await buildWarnBoardPayload(clan, page, guild)),
+      ...(await buildWarnBoardPayload(clan, page, guild, view)),
       attachments: [],
     });
     return;
