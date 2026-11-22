@@ -80,6 +80,7 @@ import {
   SETUP_WHITELIST_USERS,
   SETUP_CARD_STYLE,
   SETUP_WARN_REMOVAL,
+  SETUP_ROLE_COOLDOWN,
   SETUP_WARN_REMOVAL_MODAL,
   SETUP_WARN_REMOVAL_CUSTOM,
   setupToggle,
@@ -95,6 +96,8 @@ import {
 } from "./setupWizard";
 import { setupMainPayloadV2 } from "../ui/v2/setupPanels";
 import { legacyToV2 } from "../ui/v2/fromLegacy";
+import { ROLE_COOLDOWN_PRESETS, roleCooldownLabel } from "../services/warningRole";
+import { sweepWarningRoleCooldown } from "../services/warnings";
 
 /**
  * The configuration hub. Replaces the old static setup embeds: one compact
@@ -838,13 +841,30 @@ function cardsPayload(clan: Clan): BaseMessageOptions {
             "• **Canvas cards** — the branded avatar cards.\n" +
             "• **Avatar embed** — the classic embed with the member's avatar.\n\n" +
             "Cards show the member's **linked Roblox avatar** in the corner (Discord avatar if they aren't linked).\n\n" +
-            "The **warning role** turns on at **2 active warnings** and comes off when they drop below 2. " +
-            "Warnings stay until staff clear them — they do not expire on a timer.\n\n" +
-            `Currently: style **${cardStyleLabel(clan)}**`
+            "**Warning role** — turns on at **2 active warnings** and comes off when staff clear them below 2.\n" +
+            "**Role cooldown** — optionally take the role off after a clean stretch with no new warning. " +
+            "The warnings stay on record, and a new warning puts the role back.\n\n" +
+            `Currently: style **${cardStyleLabel(clan)}** · role cooldown **${roleCooldownLabel(clan.warningRoleCooldownDays)}**`
         ),
     ],
     components: [
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(cardStyle),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(SETUP_ROLE_COOLDOWN)
+          .setPlaceholder("Warning role cooldown…")
+          .addOptions(
+            ROLE_COOLDOWN_PRESETS.map((d) => ({
+              value: String(d),
+              label: d === 0 ? "Off — role stays until warnings are cleared" : `${d} days without a new warning`,
+              description:
+                d === 0
+                  ? "Today's behavior."
+                  : `Role comes off after ${d} clean days. Warnings stay on record.`,
+              default: (clan.warningRoleCooldownDays ?? 0) === d,
+            }))
+          )
+      ),
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
       ),
@@ -1552,6 +1572,16 @@ export async function handleSetupSelect(
   if (interaction.isStringSelectMenu() && action === "cardStyle") {
     const style = interaction.values[0] === "embed" ? "embed" : "canvas";
     const updated = (await updateClan(clan.guildId, { cardStyle: style })) ?? clan;
+    await interaction.editReply(cardsPayload(updated));
+    return;
+  }
+
+  if (interaction.isStringSelectMenu() && action === "roleCooldown") {
+    const days = parseInt(interaction.values[0] ?? "0", 10);
+    const safe = (ROLE_COOLDOWN_PRESETS as readonly number[]).includes(days) ? days : 0;
+    const updated = (await updateClan(clan.guildId, { warningRoleCooldownDays: safe })) ?? clan;
+    // Apply right away rather than waiting for the next 10-minute sweep.
+    if (safe > 0) void sweepWarningRoleCooldown(interaction.client, updated).catch(() => undefined);
     await interaction.editReply(cardsPayload(updated));
     return;
   }

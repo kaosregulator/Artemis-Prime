@@ -113,6 +113,8 @@ export const SETUP_WHITELIST_USERS = id(NS.setup, "whitelistUsers");
 // Enforcement cards & warning-role auto-removal.
 export const SETUP_CARD_STYLE = id(NS.setup, "cardStyle");
 export const SETUP_WARN_REMOVAL = id(NS.setup, "warnRemoval");
+/** Warning-role cooldown select (days). Distinct action from the retired warnRemoval timer. */
+export const SETUP_ROLE_COOLDOWN = id(NS.setup, "roleCooldown");
 export const SETUP_WARN_REMOVAL_CUSTOM = id(NS.setup, "warnRemovalCustom");
 export const SETUP_WARN_REMOVAL_MODAL = id(NS.setup, "warnRemovalModal");
 // Notification toggles (arg = key)

@@ -93,6 +93,14 @@ export const clansTable = pgTable("clans", {
   // has no active warnings left). When > 0 the scheduler expires warnings once
   // they reach this age, which also strips the warning role.
   warningRemovalHours: integer("warning_removal_hours").notNull().default(0),
+  /**
+   * Warning-role cooldown in days (0 = off). The role comes off once a member's
+   * newest active warning is this old; a new warning puts it back. Warning
+   * records are never expired by this — staff still clear them.
+   * Replaces the retired warningRemovalHours timer, whose stored values are
+   * deliberately ignored so a stale pre-rework setting can't fire on deploy.
+   */
+  warningRoleCooldownDays: integer("warning_role_cooldown_days").notNull().default(0),
 
   // Patriot / Guardian (alt account) system. null max = unlimited.
   altAccountsEnabled: boolean("alt_accounts_enabled").notNull().default(false),

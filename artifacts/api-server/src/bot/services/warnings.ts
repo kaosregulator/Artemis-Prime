@@ -515,7 +515,10 @@ export async function syncWarningRole(opts: {
   const { guild, clan, userId, activeCount } = opts;
   if (!clan.warningRoleIds.length) return { hasRole: false, changed: false };
 
-  const shouldHave = shouldHoldWarningRole(activeCount);
+  const cooldownDays = clan.warningRoleCooldownDays ?? 0;
+  const newestActiveAt = cooldownDays > 0 ? await newestActiveWarningAt(clan.guildId, userId) : null;
+  const shouldHave = shouldHoldWarningRole({ activeCount, newestActiveAt, cooldownDays });
+  const cooledDown = !shouldHave && activeCount >= WARNING_ROLE_ACTIVE_COUNT;
   const gm = await guild.members.fetch(userId).catch(() => null);
   if (!gm) return { hasRole: false, changed: false };
 
@@ -541,7 +544,9 @@ export async function syncWarningRole(opts: {
     title: shouldHave ? "🔗 Warning role applied" : "✅ Warning role removed",
     description: shouldHave
       ? `<@${userId}> reached **${WARNING_ROLE_ACTIVE_COUNT}** active warnings — warning role applied by <@${opts.actorId}>.`
-      : `<@${userId}> is below **${WARNING_ROLE_ACTIVE_COUNT}** active warnings — warning role removed by <@${opts.actorId}>.`,
+      : cooledDown
+        ? `<@${userId}> went **${cooldownDays} days** without a new warning — warning role removed. Their warnings stay on record.`
+        : `<@${userId}> is below **${WARNING_ROLE_ACTIVE_COUNT}** active warnings — warning role removed by <@${opts.actorId}>.`,
     color: shouldHave ? 0xed4245 : 0x3ba55d,
     actorId: opts.actorId,
     actorUsername: opts.actorUsername,
@@ -558,7 +563,12 @@ export async function syncWarningRole(opts: {
     auditDetails: {
       activeCount,
       threshold: WARNING_ROLE_ACTIVE_COUNT,
-      reason: shouldHave ? "active_warning_threshold" : "below_active_warning_threshold",
+      cooldownDays,
+      reason: shouldHave
+        ? "active_warning_threshold"
+        : cooledDown
+          ? "role_cooldown_elapsed"
+          : "below_active_warning_threshold",
     },
   });
 
@@ -920,12 +930,75 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
   return warning;
 }
 
+/** When the member's newest active (not cleared) warning was issued, or null. */
+export async function newestActiveWarningAt(guildId: string, userId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ at: sql<Date | null>`max(${warningsTable.issuedAt})` })
+    .from(warningsTable)
+    .where(
+      and(
+        eq(warningsTable.guildId, guildId),
+        eq(warningsTable.userId, userId),
+        isNull(warningsTable.removedAt)
+      )
+    );
+  return row?.at ? new Date(row.at) : null;
+}
+
 /**
- * Retired. Warnings and the warning role are not on a timer.
- * The role turns on at 2 active warnings and comes off when staff clear below that.
+ * Warning-role cooldown sweep (scheduler, every 10 minutes).
+ *
+ * When `clans.warningRoleCooldownDays` > 0, a member whose newest active
+ * warning is older than the cooldown loses the warning role. Warning records
+ * are NOT removed — the board, disputes and history keep them, and a new
+ * warning puts the role straight back. No-op when the cooldown is off.
+ *
+ * (Replaces the timer retired in the Oct 2026 rework. It reads its own
+ * column, never the old warningRemovalHours, so a stale value can't fire.)
  */
-export async function autoExpireWarnings(_client: Client, _clan: Clan): Promise<number> {
-  return 0;
+export async function sweepWarningRoleCooldown(client: Client, clan: Clan): Promise<number> {
+  const days = clan.warningRoleCooldownDays ?? 0;
+  if (days <= 0 || !clan.warningRoleIds.length) return 0;
+  const guild = client.guilds.cache.get(clan.guildId);
+  if (!guild) return 0;
+
+  const rows = await db
+    .select({
+      userId: warningsTable.userId,
+      username: sql<string>`max(${warningsTable.username})`,
+      active: sql<number>`count(*)::int`.mapWith(Number),
+      newest: sql<Date>`max(${warningsTable.issuedAt})`,
+    })
+    .from(warningsTable)
+    .where(and(eq(warningsTable.guildId, clan.guildId), isNull(warningsTable.removedAt)))
+    .groupBy(warningsTable.userId);
+
+  let removed = 0;
+  const cutoff = Date.now() - days * 86_400_000;
+  for (const r of rows) {
+    if (r.active < WARNING_ROLE_ACTIVE_COUNT) continue; // regular sync handles these
+    if (new Date(r.newest).getTime() >= cutoff) continue; // still inside the cooldown
+    // Only touch members who actually hold the role — cheap cache check first.
+    const gm = guild.members.cache.get(r.userId);
+    if (gm && !clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) continue;
+    const res = await syncWarningRole({
+      guild,
+      clan,
+      userId: r.userId,
+      username: r.username ?? r.userId,
+      activeCount: r.active,
+      actorId: client.user?.id ?? "system",
+      actorUsername: "Artemis (role cooldown)",
+    }).catch(() => null);
+    if (res?.changed) removed++;
+  }
+  if (removed) logger.info({ guild: clan.guildId, removed, days }, "Warning-role cooldown removed roles");
+  return removed;
+}
+
+/** @deprecated Kept for older call sites; the cooldown sweep replaced the timer. */
+export async function autoExpireWarnings(client: Client, clan: Clan): Promise<number> {
+  return sweepWarningRoleCooldown(client, clan);
 }
 
 /**

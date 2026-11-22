@@ -3,6 +3,7 @@
  * Sub-panels remain classic embeds until migrated individually.
  * Button custom IDs are unchanged.
  */
+import { roleCooldownLabel } from "../../services/warningRole";
 import { ButtonStyle, type MessageCreateOptions } from "discord.js";
 import type { Clan } from "@workspace/db";
 import { weekRangeLabel, weekKey } from "../../services/time";
@@ -100,7 +101,7 @@ export function setupMainPayloadV2(clan: Clan): MessageCreateOptions {
     `${check(clan.warningThreshold)} **Enforcement**`,
     `Reminders before a warning: **${clan.warningThreshold}**`,
     `Leadership review at **${clan.escalationThreshold}** active warning(s)`,
-    `Warning role: on at **2** active warnings`,
+    `Warning role: on at **2** active warnings · cooldown: **${roleCooldownLabel(clan.warningRoleCooldownDays)}**`,
     `Warning/reminder style: **${cardStyleLabel(clan)}**`,
   ].join("\n");
 

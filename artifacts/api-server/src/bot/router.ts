@@ -116,6 +116,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       switch (interaction.commandName) {
         case "setup":
           return void (await openSetup(interaction));
+        case "member":
         case "xp":
         // Everyday top-level aliases — same handler as /xp <sub>.
         case "entry":

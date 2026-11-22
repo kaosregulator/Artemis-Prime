@@ -216,10 +216,10 @@ describe("member-facing dispute UX rules", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(join(here, "../commands.ts"), "utf8");
     // The dispute command is built by a shared factory. Inspect that block.
-    const disputeBlock = src.slice(
-      src.indexOf("function disputeCommand"),
-      src.indexOf("export const commands")
-    );
+    // Slice exactly the factory (up to its closing brace), independent of
+    // where the commands array is declared.
+    const start = src.indexOf("function disputeCommand");
+    const disputeBlock = src.slice(start, src.indexOf("\n}\n", start) + 2);
     assert.match(disputeBlock, /addAttachmentOption/);
     assert.match(disputeBlock, /setName\("evidence"\)/);
     assert.doesNotMatch(disputeBlock, /setName\("proof"\)|setName\("url"\)|setName\("image_url"\)|setName\("link"\)/);

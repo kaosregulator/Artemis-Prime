@@ -150,8 +150,8 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
     case "calendar":
       await interaction.editReply({
         content:
-          "📅 Open a member's calendar with **/calendar @member** (add `month:YYYY-MM` for a past month). " +
-          "Members can run **/calendar** to see their own.",
+          "The activity calendar was retired with XP tracking. " +
+          "For a member's warnings and history, use **/viewlink @member** or **/warnboard**.",
       });
       return;
     case "search":
@@ -191,7 +191,7 @@ export async function handleCommandCenterSelect(interaction: UserSelectMenuInter
 export async function memberSummary(clan: Clan, userId: string) {
   const member = await getMember(clan.guildId, userId);
   if (!member) {
-    return { content: `<@${userId}> isn't tracked yet — an officer can start them with \`/xp set\`.` };
+    return { content: `<@${userId}> isn't on the roster yet. Members are added the first time they're warned or linked with \`/link\`.` };
   }
   const status = statusOf(clan, member);
   const warns = await listActive(clan.guildId, userId);

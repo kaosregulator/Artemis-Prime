@@ -1,6 +1,7 @@
 import type { Client } from "discord.js";
 import type { Clan } from "@workspace/db";
 import dayjs from "dayjs";
+import { sweepWarningRoleCooldown } from "./services/warnings";
 import { logger } from "../lib/logger";
 import { recordSchedulerTick } from "../lib/diagnostics";
 import { activeClans } from "./services/config";
@@ -129,6 +130,10 @@ async function tick(client: Client) {
 
         if (new Date().getMinutes() % 10 === 0) {
           await refreshDashboardNow(clan.guildId).catch(() => {});
+          // Warning-role cooldown (no-op unless the server turned it on).
+          await sweepWarningRoleCooldown(client, clan).catch((err) =>
+            logger.warn({ err, guild: clan.guildId }, "Warning-role cooldown sweep failed")
+          );
         }
       } catch (err) {
         failed = true;

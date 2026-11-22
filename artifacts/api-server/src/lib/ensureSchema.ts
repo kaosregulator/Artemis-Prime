@@ -175,6 +175,8 @@ const STATEMENTS = [
   // Truth or Dare
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS tod_enabled boolean NOT NULL DEFAULT true`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS tod_settings_json text`,
+  // Warning-role cooldown (0 = off, so deploying changes nothing until staff opt in).
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS warning_role_cooldown_days integer NOT NULL DEFAULT 0`,
   `CREATE TABLE IF NOT EXISTS tod_players (
       id serial PRIMARY KEY,
       guild_id text NOT NULL,

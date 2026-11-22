@@ -116,7 +116,8 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   // commands (/xpwarn, /calendar, /entry, /missing). For the aliases there is
   // no subcommand — the command name *is* the action. (Reminders/warnings for
   // many members now live in the unified /xpwarner picker.)
-  const isAlias = interaction.commandName !== "xp";
+  // /member <exempt|leave|note> shares /xp's subcommand handlers.
+  const isAlias = interaction.commandName !== "xp" && interaction.commandName !== "member";
   const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
   const sub = isAlias
     ? false /* /xpwarn retired — use /xpwarn */
@@ -573,7 +574,7 @@ async function handleProgress(interaction: ChatInputCommandInteraction) {
   const member = await getMember(clan.guildId, target.id);
   if (!member) {
     await interaction.editReply({
-      content: `**${target.username}** isn't tracked yet. An officer can start tracking them with \`/xp set\`.`,
+      content: `**${target.username}** isn't on the roster yet. Members are added the first time they're warned or linked with \`/link\`.`,
     });
     return;
   }

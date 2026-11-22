@@ -57,7 +57,7 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
     .toJSON();
 }
 
-export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
+const allCommands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("setup")
     .setDescription("Configure this clan server")
@@ -694,4 +694,55 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
       o.setName("user").setDescription("Who to challenge").setRequired(true)
     )
     .toJSON(),
+];
+
+/**
+ * Per-member staff settings that used to live under /xp. Same handlers
+ * (features/xp.ts) — only the command name changed.
+ */
+function memberCommand(): RESTPostAPIApplicationCommandsJSONBody {
+  return new SlashCommandBuilder()
+    .setName("member")
+    .setDescription("Member settings — exempt, leave and staff notes (officers)")
+    .setDMPermission(false)
+    .addSubcommand((s) =>
+      s
+        .setName("exempt")
+        .setDescription("Mark a member exempt from reminders and warnings")
+        .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+        .addBooleanOption((o) => o.setName("enabled").setDescription("On or off (default on)").setRequired(false))
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("leave")
+        .setDescription("Mark a member as on leave (no reminders or warnings)")
+        .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+        .addBooleanOption((o) => o.setName("enabled").setDescription("On or off (default on)").setRequired(false))
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("note")
+        .setDescription("Attach a staff note to a member")
+        .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+        .addStringOption((o) =>
+          o.setName("text").setDescription("Note (leave empty to clear the quick note)").setRequired(false)
+        )
+        .addBooleanOption((o) =>
+          o.setName("notify").setDescription("Also DM this note to the member").setRequired(false)
+        )
+    )
+    .toJSON();
+}
+
+/**
+ * XP entry & tracking commands, hidden from Discord's command list.
+ * The clan doesn't enter or track XP; warnings are casual "you weren't on"
+ * notices. Handlers stay routed so nothing breaks, data is untouched, and
+ * removing a name from this set brings that command back.
+ */
+export const RETIRED_COMMANDS = new Set(["xp", "entry", "calendar", "missing"]);
+
+export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
+  ...allCommands.filter((c) => !RETIRED_COMMANDS.has(c.name)),
+  memberCommand(),
 ];
