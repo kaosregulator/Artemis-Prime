@@ -10,6 +10,7 @@ import {
 import { logger } from "../lib/logger";
 import { commands } from "./commands";
 import { routeInteraction } from "./router";
+import { onTicketChannelDeleted, reconcileOrphanTickets } from "./services/ticketReconcile";
 import { startScheduler } from "./scheduler";
 import { setCommandCenterClient } from "./services/commandCenter";
 import { setOrderTrackerClient } from "./services/orderTracker";
@@ -205,6 +206,10 @@ export function startBot() {
     });
     await registerCommands(c);
     startScheduler(c);
+    // Catch ticket channels deleted while the bot was offline.
+    void reconcileOrphanTickets(c).catch((err) => {
+      logger.warn({ err }, "Orphan ticket sweep failed");
+    });
     // Background Military Tycoon (and tracked) snapshots for Game Intelligence.
     try {
       startScoutAutoSnapshots();
@@ -215,6 +220,15 @@ export function startBot() {
 
   client.on(Events.InteractionCreate, (interaction) => {
     void routeInteraction(interaction);
+  });
+
+  // A ticket channel deleted by hand (not via the bot's Delete button) used to
+  // leave a ghost order/dispute that blocked its owner. Reconcile it live.
+  client.on(Events.ChannelDelete, (channel) => {
+    if (channel.isDMBased()) return;
+    void onTicketChannelDeleted(channel.client, channel.guild, channel.id).catch((err) => {
+      logger.warn({ err, channelId: channel.id }, "Ticket channel reconcile failed");
+    });
   });
 
   client.login(DISCORD_BOT_TOKEN).catch((err) => {

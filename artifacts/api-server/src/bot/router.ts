@@ -1,4 +1,5 @@
-import type { Interaction } from "discord.js";
+import { MessageFlags, type Interaction } from "discord.js";
+import { legacyToV2 } from "./ui/v2/fromLegacy";
 import { logger } from "../lib/logger";
 import { parseId, NS } from "./ui/ids";
 import {
@@ -86,8 +87,30 @@ import { handleWarnings, handleHubButton, handleHubModal, handleWarningsAutocomp
 import { handleWarnBoard } from "./features/warnBoard";
 import { handleClanLogo } from "./features/clanLogo";
 
+/**
+ * When the source message is Components V2, Discord rejects any edit that
+ * carries legacy content/embeds (the V2 flag can never be removed) — 50035,
+ * "This interaction failed". Convert those edits at the boundary so legacy
+ * sub-screens (setup sections, confirmations, error fallbacks) keep working.
+ */
+function guardV2Edits(interaction: Interaction): void {
+  if (!interaction.isMessageComponent() && !interaction.isModalSubmit()) return;
+  const message = interaction.message;
+  if (!message?.flags?.has(MessageFlags.IsComponentsV2)) return;
+  const wrap = <F extends (opts: never) => Promise<unknown>>(fn: F): F =>
+    ((opts: unknown) =>
+      fn((typeof opts === "string" ? legacyToV2({ content: opts }) : legacyToV2(opts as object)) as never)) as F;
+  interaction.editReply = wrap(interaction.editReply.bind(interaction)) as typeof interaction.editReply;
+  if ("update" in interaction && typeof interaction.update === "function") {
+    (interaction as { update: unknown }).update = wrap(
+      (interaction.update as (o: never) => Promise<unknown>).bind(interaction)
+    );
+  }
+}
+
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
+  guardV2Edits(interaction);
   try {
     if (interaction.isChatInputCommand()) {
       switch (interaction.commandName) {

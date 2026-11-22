@@ -28,6 +28,7 @@ import { renderOffThread } from "../canvas/render-pool";
 import { buildOverviewPayload } from "./dashboard";
 import { buildDisputePicker } from "./disputes";
 import { openDisputeTicket, findOpenDisputeForUser } from "../services/disputes";
+import { healDisputeIfOrphaned } from "../services/ticketReconcile";
 import { cleanRankOf, handleMemberSearchAutocomplete } from "./leaderboard";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete } from "../ui/hubVisibility";
@@ -446,7 +447,12 @@ async function startHubDispute(interaction: ButtonInteraction, userId: string) {
     return;
   }
 
-  const open = await findOpenDisputeForUser(clan.guildId, userId);
+  let open = await findOpenDisputeForUser(clan.guildId, userId);
+  // A dispute whose channel was deleted by hand is closed (no decision) so the
+  // member can open a new one. Only a DB write — safe inside the 3s window.
+  if (open?.channelId && interaction.inCachedGuild() && (await healDisputeIfOrphaned(interaction.guild, open))) {
+    open = null;
+  }
   if (open?.channelId) {
     await interaction.reply({
       content: `You already have an open dispute — continue in <#${open.channelId}>.`,

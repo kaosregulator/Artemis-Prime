@@ -94,6 +94,7 @@ import {
   handleWizardSelect,
 } from "./setupWizard";
 import { setupMainPayloadV2 } from "../ui/v2/setupPanels";
+import { legacyToV2 } from "../ui/v2/fromLegacy";
 
 /**
  * The configuration hub. Replaces the old static setup embeds: one compact
@@ -1079,8 +1080,13 @@ export async function openSetup(interaction: ChatInputCommandInteraction) {
   const clan = await ensureClan(interaction.guildId, interaction.guild.name);
   // New servers get the linear guided wizard; already-configured servers open
   // the advanced hub for quick edits (the wizard is one button away).
+  // Always V2 from the first message: the hub is V2, and Discord cannot flip a
+  // message between legacy embeds and V2 afterwards. legacyToV2 is a no-op for
+  // the (already V2) hub and wraps the embed-based wizard step.
   await interaction.editReply(
-    clan.setupComplete ? setupMainPayload(clan) : wizardStepPayload(clan, 1)
+    legacyToV2(clan.setupComplete ? setupMainPayload(clan) : wizardStepPayload(clan, 1)) as Parameters<
+      typeof interaction.editReply
+    >[0]
   );
 }
 
@@ -1560,3 +1566,17 @@ export async function handleSetupSelect(
     return;
   }
 }
+
+/** Test-only: every setup sub-screen, so the V2 conversion can be validated offline. */
+export const __setupSectionsForTest = {
+  modePayload,
+  periodPayload,
+  disputesPayload,
+  levelingPayload,
+  levelingAccessPayload,
+  channelsPayload,
+  rolesPayload,
+  notifyPayload,
+  whitelistPayload,
+  cardsPayload,
+};

@@ -136,7 +136,7 @@ export default function GuildsPage() {
                   const res = await customFetch<{ inviteUrl: string }>('/api/auth/invite-url');
                   if (res.inviteUrl) window.open(res.inviteUrl, "_blank");
                 } catch {
-                  window.open("https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147871808", "_blank");
+                  window.open("https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2416307280", "_blank");
                 }
               }}>
                 Invite Bot

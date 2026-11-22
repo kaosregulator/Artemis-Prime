@@ -173,8 +173,10 @@ async function postChallengeCard(opts: {
     const msg = await opts.interaction.editReply(payload);
     await bindChallengeMessage(challenge.id, msg.id);
   } else {
-    const msg = await opts.interaction.reply({ ...payload, fetchReply: true });
-    await bindChallengeMessage(challenge.id, msg.id);
+    // `fetchReply` is deprecated in discord.js v14 (removed in v15); use withResponse.
+    const res = await opts.interaction.reply({ ...payload, withResponse: true });
+    const msgId = res.resource?.message?.id;
+    if (msgId) await bindChallengeMessage(challenge.id, msgId);
   }
 }
 

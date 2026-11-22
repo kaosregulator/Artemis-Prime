@@ -278,7 +278,15 @@ export async function placeServiceOrder(
     };
   }
 
-  const existing = await findOpenOrderForCustomer(input.clan.guildId, input.customer.id);
+  let existing = await findOpenOrderForCustomer(input.clan.guildId, input.customer.id);
+  // Self-heal: an order whose ticket channel was deleted by hand is a ghost —
+  // close it instead of blocking the customer forever.
+  if (existing?.channelId) {
+    const { healOrderIfOrphaned } = await import("./ticketReconcile");
+    if (await healOrderIfOrphaned(input.client, input.guild, existing).catch(() => false)) {
+      existing = await findOpenOrderForCustomer(input.clan.guildId, input.customer.id);
+    }
+  }
   if (existing) {
     const where = existing.channelId ? ` — see <#${existing.channelId}>` : "";
     return {
@@ -1713,7 +1721,24 @@ export async function deleteServiceOrderChannel(opts: {
 }): Promise<{ ok: true; deleted: boolean } | { ok: false; error: string }> {
   const order = await getServiceOrder(opts.clan.guildId, opts.orderId);
   if (!order) return { ok: false, error: "Order not found." };
-  if (!order.channelId) return { ok: false, error: "This order has no ticket channel left." };
+  if (!order.channelId) {
+    // Channel already gone (deleted by hand): still close a live order so it
+    // stops holding a queue slot and blocking the customer.
+    if (isTerminalStatus(order.status)) {
+      return { ok: false, error: `Order **${order.publicId}** is already ${order.status} and has no ticket channel.` };
+    }
+    const cancelled = await applyServiceOrderAction({
+      client: opts.client,
+      guild: opts.guild,
+      clan: opts.clan,
+      orderId: order.id,
+      action: "cancel",
+      actorId: opts.actorId,
+      actorUsername: opts.actorUsername,
+      note: "Closed by staff — ticket channel was already gone",
+    });
+    return cancelled.ok ? { ok: true, deleted: false } : cancelled;
+  }
 
   // Capture transcript before deleting so nothing is lost.
   const transcriptRes = await captureServiceOrderTranscript({

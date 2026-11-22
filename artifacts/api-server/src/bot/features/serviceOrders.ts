@@ -1,6 +1,8 @@
 import {
   EmbedBuilder,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
@@ -58,6 +60,8 @@ import {
   SERVICE_ORDER_MIN_PHOTOS,
   parseLevelInput,
 } from "../services/serviceOrderHelpers";
+import { isTerminalStatus } from "../services/serviceOrderHelpers";
+import { healOrderIfOrphaned, ticketChannelGone } from "../services/ticketReconcile";
 import {
   buildOrderTags,
   calculateServiceQuote,
@@ -92,6 +96,9 @@ import {
   SVC_WIZ_CONTINUE,
   SVC_WIZ_SERVICE,
   svcDetailsModal,
+  svcCancel,
+  svcComplete,
+  svcDelete,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
 import { relative } from "../services/time";
@@ -341,7 +348,27 @@ export async function openLevelingCommand(interaction: ChatInputCommandInteracti
       });
       return;
     }
-    await interaction.editReply({ embeds: [orderEmbed(order)] });
+    // Staff get controls right on the lookup, so any order — including one
+    // whose ticket channel was deleted — can always be closed or removed.
+    const live = !isTerminalStatus(order.status as ServiceOrderStatus);
+    const controls =
+      staff && (live || order.channelId)
+        ? [
+            new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+              ...(live
+                ? [
+                    new ButtonBuilder().setCustomId(svcComplete(order.id)).setLabel("Complete").setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(svcCancel(order.id)).setLabel("Cancel order").setStyle(ButtonStyle.Danger),
+                  ]
+                : []),
+              new ButtonBuilder()
+                .setCustomId(svcDelete(order.id))
+                .setLabel(order.channelId ? "Delete ticket" : "Close ghost order")
+                .setStyle(ButtonStyle.Danger)
+            ),
+          ]
+        : [];
+    await interaction.editReply({ embeds: [orderEmbed(order)], components: controls });
     return;
   }
 
@@ -410,6 +437,13 @@ async function assertCanBeginPlace(
   }
 
   const existing = await findOpenOrderForCustomer(clan.guildId, interaction.user.id);
+  // A ghost order (ticket channel deleted by hand) must not block the customer.
+  // Confirming the channel is gone is fast; the full cancel (DMs, queue
+  // renumber, logs) runs in the background so this reply meets Discord's 3s window.
+  if (existing?.channelId && (await ticketChannelGone(interaction.guild, existing.channelId))) {
+    void healOrderIfOrphaned(interaction.client, interaction.guild, existing).catch(() => undefined);
+    return clan;
+  }
   if (existing) {
     const where = existing.channelId ? ` — see <#${existing.channelId}>` : "";
     await interaction.reply({

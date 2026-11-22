@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "DATABASE_URL=\"${DATABASE_URL:-postgres://127.0.0.1:5432/artemis_test}\" tsx --test src/bot/services/tracking.test.ts src/bot/services/disputes.test.ts src/bot/features/warnBoard.test.ts src/bot/services/scout/intelligence.test.ts src/bot/services/serviceOrderHelpers.test.ts src/bot/services/serviceCatalog.test.ts src/bot/services/todContent.test.ts src/bot/canvas/render-pool.test.ts src/bot/ui/v2/primitives.test.ts src/bot/services/discordErrors.test.ts src/bot/scheduler.overlap.test.ts src/bot/services/panelRefresh.test.ts"
+    "test": "DATABASE_URL=\"${DATABASE_URL:-postgres://127.0.0.1:5432/artemis_test}\" tsx --test src/bot/services/tracking.test.ts src/bot/services/disputes.test.ts src/bot/features/warnBoard.test.ts src/bot/services/scout/intelligence.test.ts src/bot/services/serviceOrderHelpers.test.ts src/bot/services/serviceCatalog.test.ts src/bot/services/todContent.test.ts src/bot/canvas/render-pool.test.ts src/bot/ui/v2/primitives.test.ts src/bot/services/discordErrors.test.ts src/bot/scheduler.overlap.test.ts src/bot/services/panelRefresh.test.ts src/bot/ui/v2/fromLegacy.test.ts"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",
@@ -22,7 +22,7 @@
     "cors": "^2.8.6",
     "dayjs": "^1.11.13",
     "discord-api-types": "^0.38.49",
-    "discord.js": "^14.26.4",
+    "discord.js": "^14.28.1",
     "drizzle-orm": "catalog:",
     "express": "^5.2.1",
     "express-session": "^1.19.0",

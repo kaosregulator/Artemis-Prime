@@ -302,7 +302,14 @@ export async function openDisputeTicket(
   if (!botId) return { ok: false, error: "Bot is not ready — try again in a moment." };
 
   // One open dispute ticket per member keeps the category tidy.
-  const existing = await findOpenDisputeForUser(clan.guildId, user.id);
+  let existing = await findOpenDisputeForUser(clan.guildId, user.id);
+  // Self-heal: a dispute whose channel was deleted by hand must not block forever.
+  if (existing?.channelId) {
+    const { healDisputeIfOrphaned } = await import("./ticketReconcile");
+    if (await healDisputeIfOrphaned(guild, existing).catch(() => false)) {
+      existing = await findOpenDisputeForUser(clan.guildId, user.id);
+    }
+  }
   if (existing) {
     const where = existing.channelId ? ` — see <#${existing.channelId}>` : "";
     return {
