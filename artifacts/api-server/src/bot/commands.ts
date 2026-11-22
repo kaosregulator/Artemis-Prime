@@ -278,21 +278,8 @@ const allCommands: RESTPostAPIApplicationCommandsJSONBody[] = [
   // preview and a single Send. It replaces the old single /xpwarn and /xpremind.
   new SlashCommandBuilder()
     .setName("xpwarn")
-    .setDescription("Warn or remind one or many members — opens a picker (officers)")
+    .setDescription("Roll call — remind or warn everyone you noticed, in one post (officers)")
     .setDMPermission(false)
-    .addStringOption((o) =>
-      o
-        .setName("mode")
-        .setDescription("Which action to start on — you can switch it in the panel")
-        .setRequired(false)
-        .addChoices({ name: "⚠️ Warning", value: "warning" }, { name: "🔔 Reminder", value: "reminder" })
-    )
-    .addAttachmentOption((o) =>
-      o
-        .setName("logo")
-        .setDescription("Optional clan image. Cards use the member's linked Roblox avatar instead.")
-        .setRequired(false)
-    )
     .toJSON(),
   new SlashCommandBuilder()
     .setName("activity")

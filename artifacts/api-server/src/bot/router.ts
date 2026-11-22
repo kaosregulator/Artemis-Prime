@@ -30,7 +30,6 @@ import { openTickets, handleTicketButton, handleTicketSelect } from "./features/
 import { handleMemberPanelButton, handleMemberPanelModal } from "./features/memberPanel";
 import { handleAuditButton } from "./features/audit";
 import {
-  openEnforcementPicker,
   handleEnforcementButton,
   handleEnforcementSelect,
   handleEnforcementCategorySelect,
@@ -86,6 +85,13 @@ import {
 import { handleWarnings, handleHubButton, handleHubModal, handleWarningsAutocomplete } from "./features/userHub";
 import { handleWarnBoard } from "./features/warnBoard";
 import { handleClanLogo } from "./features/clanLogo";
+import {
+  openRollCall,
+  handleRollCallButton,
+  handleRollCallUserSelect,
+  handleRollCallStringSelect,
+  handleRollCallModal,
+} from "./features/rollCall";
 
 /**
  * When the source message is Components V2, Discord rejects any edit that
@@ -127,7 +133,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         // silent alias for older clients that still have it cached.
         case "xpreminder":
         case "xpwarn":
-          return void (await openEnforcementPicker(interaction));
+          // Roll call replaced the 5-step picker; old picker buttons still route below.
+          return void (await openRollCall(interaction));
         case "activity":
           return void (await openActivityLog(interaction));
         case "warnings":
@@ -248,6 +255,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleAltButton(interaction));
         case NS.tod:
           return void (await handleTodButton(interaction));
+        case NS.rc:
+          return void (await handleRollCallButton(interaction));
       }
       return;
     }
@@ -258,6 +267,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       if (ns === NS.enf) return void (await handleEnforcementSelect(interaction));
       if (ns === NS.act) return void (await handleActivityUserSelect(interaction));
+      if (ns === NS.rc) return void (await handleRollCallUserSelect(interaction));
       return;
     }
 
@@ -276,6 +286,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.svc) return void (await handleServiceOrderModal(interaction));
       if (ns === NS.alt) return void (await handleAltModal(interaction));
       if (ns === NS.tod) return void (await handleTodModal(interaction));
+      if (ns === NS.rc) return void (await handleRollCallModal(interaction));
       return;
     }
 
@@ -303,6 +314,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.mkt) return void (await handleMarketSelect(interaction));
       if (ns === NS.link) return void (await handleLinkSelect(interaction));
       if (ns === NS.svc) return void (await handleServiceOrderSelect(interaction));
+      if (ns === NS.rc) return void (await handleRollCallStringSelect(interaction));
       return;
     }
   } catch (err) {

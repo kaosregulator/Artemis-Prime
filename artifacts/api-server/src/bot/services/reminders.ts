@@ -28,6 +28,11 @@ import { cardAvatarPair } from "./warnings";
 export interface ReminderDelivery {
   channel?: boolean;
   dm?: boolean;
+  /**
+   * Don't fall back to a per-person channel post when the DM fails. Roll call
+   * sets this: its one grouped message already mentions everyone.
+   */
+  noChannelFallback?: boolean;
 }
 
 export interface SendReminderInput {
@@ -135,15 +140,20 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.
-  const card =
-    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body, member, input.categoryLabel ?? null);
-
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).
   const wantDm = input.deliver?.dm ?? clan.dmReminders;
   const wantChannel = input.deliver
     ? (input.deliver.channel ?? false)
     : !!clan.reminderChannelId;
+  const mayFallBack = !input.deliver?.noChannelFallback && !!clan.reminderChannelId;
+
+  // Only render when something will actually be sent (saves a canvas render
+  // per person when DMs are off and there is no channel post).
+  const card =
+    clan.cardStyle === "embed" || !(wantDm || wantChannel || mayFallBack)
+      ? null
+      : await renderReminderCardSafe(clan, target, body, member, input.categoryLabel ?? null);
 
   if (wantDm) {
     try {
@@ -155,7 +165,7 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     }
   }
 
-  const channelFallback = wantChannel || (!delivered && !!clan.reminderChannelId);
+  const channelFallback = wantChannel || (!delivered && mayFallBack);
   if (clan.reminderChannelId && channelFallback) {
     try {
       const channel = await client.channels.fetch(clan.reminderChannelId);

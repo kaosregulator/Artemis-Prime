@@ -24,6 +24,7 @@ export const NS = {
   svc: "svc", // Leveling / service-order queue
   alt: "alt", // Patriots / Guardians alt board
   tod: "tod", // Truth or Dare
+  rc: "rc", // Roll call (/xpwarn): reminders + warnings in one grouped post
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -378,3 +379,15 @@ export const todPass = (challengeId: number) => id(NS.tod, "pass", challengeId);
 export const todReroll = (challengeId: number) => id(NS.tod, "reroll", challengeId);
 export const TOD_ANON_MODAL = id(NS.tod, "anonModal");
 
+
+// Roll call (/xpwarn). arg = session token; button targets add `-<action>`.
+export const rcPeople = (tok: string) => id(NS.rc, "people", tok);
+export const rcCategory = (tok: string) => id(NS.rc, "cat", tok);
+export const rcPick = (tok: string) => id(NS.rc, "pick", tok);
+export const rcSetTo = (tok: string, to: "reminder" | "warning" | "skip") => id(NS.rc, "to", `${tok}-${to}`);
+export const rcPost = (tok: string) => id(NS.rc, "post", tok);
+export const rcNote = (tok: string) => id(NS.rc, "note", tok);
+export const rcNoteModal = (tok: string) => id(NS.rc, "noteModal", tok);
+export const rcEdit = (tok: string) => id(NS.rc, "edit", tok);
+export const rcCancel = (tok: string) => id(NS.rc, "cancel", tok);
+export const rcUndo = (tok: string) => id(NS.rc, "undo", tok);
